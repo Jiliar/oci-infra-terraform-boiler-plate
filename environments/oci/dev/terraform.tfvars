@@ -60,7 +60,7 @@ node_pools = {
 # PostgreSQL Database - Free Tier
 db_system_name    = "addon-ai-dev-postgres"
 db_admin_password = "__DB_ADMIN_PASSWORD__"
-db_name           = "addonaidevdbash2"
+db_name           = "addonaidevdbash"
 db_backup_enabled = true
 
 # OCIR (Container Registry)
