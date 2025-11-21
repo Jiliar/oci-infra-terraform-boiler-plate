@@ -16,6 +16,7 @@ locals {
 }
 
 resource "oci_logging_log" "lb_access_log" {
+  count        = var.lb_id != "" ? 1 : 0
   display_name = "lb-access-log"
   log_group_id = local.log_group_id
   log_type     = "SERVICE"
@@ -75,7 +76,7 @@ resource "oci_logging_log" "db_log" {
 }
 
 resource "oci_monitoring_alarm" "alarm" {
-  count                 = var.alarm_enabled ? 1 : 0
+  count                 = var.alarm_enabled && var.alarm_destinations != null && length(var.alarm_destinations) > 0 ? 1 : 0
   compartment_id        = var.compartment_id
   display_name          = "${var.namespace}-alarm"
   is_enabled            = true
@@ -83,5 +84,5 @@ resource "oci_monitoring_alarm" "alarm" {
   namespace             = var.namespace
   query                 = "CpuUtilization[1m].mean() > 80"
   severity              = "CRITICAL"
-  destinations          = var.alarm_destinations != null ? var.alarm_destinations : []
+  destinations          = var.alarm_destinations
 }
