@@ -155,19 +155,213 @@ jobs:
       - name: Check Module Resources Exist
         id: check-resources
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 3
+        timeout-minutes: 5
         continue-on-error: true
         run: |
           echo "🔍 Checking if ${{ matrix.module }} resources already exist..."
           
-          # Simple check using terraform state list
+          # Check terraform state first for all modules
           if terraform state list 2>/dev/null | grep -q "module.${{ matrix.module }}"; then
-            echo "✅ ${{ matrix.module }} resources already exist"
+            echo "✅ ${{ matrix.module }} already in terraform state"
             echo "skip_apply=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.set-env.outputs.environment }}" == "dev" ]]; then
+            # Check if resources exist in OCI but not in terraform state
+            case "${{ matrix.module }}" in
+              "networking")
+                if oci network vcn list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-vcn')]" 2>/dev/null | grep -q "dev-vcn"; then
+                  echo "⚠️ VCN exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "k8s_cluster")
+                if oci ce cluster list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev-oke')]" 2>/dev/null | grep -q "dev-oke"; then
+                  echo "⚠️ OKE cluster exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "database")
+                if oci db autonomous-database list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'addonaidevdbash2')]" 2>/dev/null | grep -q "addonaidevdbash2"; then
+                  echo "⚠️ Database exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "load_balancer")
+                if oci lb load-balancer list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-lb')]" 2>/dev/null | grep -q "dev-lb"; then
+                  echo "⚠️ Load balancer exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "ocir")
+                if oci artifacts container repository list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-repo')]" 2>/dev/null | grep -q "dev-repo"; then
+                  echo "⚠️ OCIR repository exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "dns")
+                if oci dns zone list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev.')]" 2>/dev/null | grep -q "dev."; then
+                  echo "⚠️ DNS zone exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "vault")
+                if oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-vault')]" 2>/dev/null | grep -q "dev-vault"; then
+                  echo "⚠️ Vault exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "waf")
+                if oci waas waas-policy list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-waf')]" 2>/dev/null | grep -q "dev-waf"; then
+                  echo "⚠️ WAF policy exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "iam")
+                if oci iam policy list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev-policy')]" 2>/dev/null | grep -q "dev-policy"; then
+                  echo "⚠️ IAM policy exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              "monitoring")
+                if oci monitoring alarm list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-alarm')]" 2>/dev/null | grep -q "dev-alarm"; then
+                  echo "⚠️ Monitoring alarm exists in OCI but not in terraform state - needs import"
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=true" >> $GITHUB_OUTPUT
+                else
+                  echo "skip_apply=false" >> $GITHUB_OUTPUT
+                  echo "needs_import=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              *)
+                # For any other modules, assume they don't exist in OCI if not in state
+                echo "skip_apply=false" >> $GITHUB_OUTPUT
+                echo "needs_import=false" >> $GITHUB_OUTPUT
+                ;;
+            esac
           else
-            echo "❌ ${{ matrix.module }} resources do not exist"
+            # For non-dev environments, proceed with apply if not in state
             echo "skip_apply=false" >> $GITHUB_OUTPUT
+            echo "needs_import=false" >> $GITHUB_OUTPUT
           fi
+      
+      - name: Import Existing Resources
+        if: steps.check-resources.outputs.needs_import == 'true'
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          echo "📥 Importing existing ${{ matrix.module }} resources into terraform state..."
+          
+          case "${{ matrix.module }}" in
+            "networking")
+              VCN_OCID=$(oci network vcn list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-vcn')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$VCN_OCID" && "$VCN_OCID" != "null" ]]; then
+                echo "Found VCN OCID: $VCN_OCID"
+                terraform import module.networking.oci_core_vcn.vcn "$VCN_OCID"
+              fi
+              ;;
+            "k8s_cluster")
+              CLUSTER_OCID=$(oci ce cluster list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev-oke')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$CLUSTER_OCID" && "$CLUSTER_OCID" != "null" ]]; then
+                echo "Found OKE cluster OCID: $CLUSTER_OCID"
+                terraform import module.k8s_cluster.oci_containerengine_cluster.oke "$CLUSTER_OCID"
+              fi
+              ;;
+            "database")
+              DB_OCID=$(oci db autonomous-database list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'addonaidevdbash2')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$DB_OCID" && "$DB_OCID" != "null" ]]; then
+                echo "Found database OCID: $DB_OCID"
+                terraform import module.database.oci_database_autonomous_database.postgres "$DB_OCID"
+              fi
+              ;;
+            "load_balancer")
+              LB_OCID=$(oci lb load-balancer list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-lb')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$LB_OCID" && "$LB_OCID" != "null" ]]; then
+                echo "Found load balancer OCID: $LB_OCID"
+                terraform import module.load_balancer.oci_load_balancer_load_balancer.lb "$LB_OCID"
+              fi
+              ;;
+            "ocir")
+              REPO_OCID=$(oci artifacts container repository list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-repo')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$REPO_OCID" && "$REPO_OCID" != "null" ]]; then
+                echo "Found OCIR repository OCID: $REPO_OCID"
+                terraform import module.ocir.oci_artifacts_container_repository.repo "$REPO_OCID"
+              fi
+              ;;
+            "dns")
+              ZONE_OCID=$(oci dns zone list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev.')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$ZONE_OCID" && "$ZONE_OCID" != "null" ]]; then
+                echo "Found DNS zone OCID: $ZONE_OCID"
+                terraform import module.dns.oci_dns_zone.zone "$ZONE_OCID"
+              fi
+              ;;
+            "vault")
+              VAULT_OCID=$(oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-vault')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$VAULT_OCID" && "$VAULT_OCID" != "null" ]]; then
+                echo "Found vault OCID: $VAULT_OCID"
+                terraform import module.vault.oci_kms_vault.vault "$VAULT_OCID"
+              fi
+              ;;
+            "waf")
+              WAF_OCID=$(oci waas waas-policy list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-waf')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$WAF_OCID" && "$WAF_OCID" != "null" ]]; then
+                echo "Found WAF policy OCID: $WAF_OCID"
+                terraform import module.waf.oci_waas_waas_policy.policy "$WAF_OCID"
+              fi
+              ;;
+            "iam")
+              POLICY_OCID=$(oci iam policy list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev-policy')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$POLICY_OCID" && "$POLICY_OCID" != "null" ]]; then
+                echo "Found IAM policy OCID: $POLICY_OCID"
+                terraform import module.iam.oci_identity_policy.policy "$POLICY_OCID"
+              fi
+              ;;
+            "monitoring")
+              ALARM_OCID=$(oci monitoring alarm list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-alarm')].id | [0]" --raw-output 2>/dev/null)
+              if [[ -n "$ALARM_OCID" && "$ALARM_OCID" != "null" ]]; then
+                echo "Found monitoring alarm OCID: $ALARM_OCID"
+                terraform import module.monitoring.oci_monitoring_alarm.alarm "$ALARM_OCID"
+              fi
+              ;;
+            *)
+              echo "No import logic defined for ${{ matrix.module }}"
+              ;;
+          esac
       
       - name: Terraform Apply Module
         if: steps.check-resources.outputs.skip_apply != 'true'
