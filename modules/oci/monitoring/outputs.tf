@@ -7,7 +7,7 @@ output "log_group_id" {
 }
 
 output "lb_access_log_id" {
-  value = oci_logging_log.lb_access_log.id
+  value = var.lb_id != "" ? oci_logging_log.lb_access_log[0].id : null
 }
 
 output "waf_log_id" {
