@@ -9,7 +9,6 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Only run for the target environment, not all environments
     if: |
       github.event.pull_request.base.ref == 'dev' ||
       github.event.pull_request.base.ref == 'test' ||
@@ -17,7 +16,6 @@ jobs:
       github.event.pull_request.base.ref == 'main'
     strategy:
       matrix:
-        # NOTE: k8s_cluster deploys cluster only, node pools excluded from pipeline
         module: [networking, k8s_cluster, database, ocir, load_balancer, dns, vault, iam, waf, monitoring]
     
     steps:
@@ -40,11 +38,34 @@ jobs:
             echo "environment=prod" >> $GITHUB_OUTPUT
           fi
       
+      - name: Validate Required Secrets Exist
+        run: |
+          echo "🔍 Validating required secrets..."
+          REQUIRED_SECRETS=(
+            "OCI_USER_OCID"
+            "OCI_FINGERPRINT" 
+            "OCI_TENANCY_OCID"
+            "OCI_REGION"
+            "OCI_PRIVATE_KEY"
+            "OCI_COMPARTMENT_ID"
+            "OCI_AVAILABILITY_DOMAIN"
+          )
+          
+          for secret in "${REQUIRED_SECRETS[@]}"; do
+            if [[ -z "${{ secrets[secret] }}" ]]; then
+              echo "❌ Missing required secret: $secret"
+              exit 1
+            else
+              echo "✅ Secret $secret is set"
+            fi
+          done
+          echo "🎉 All required secrets are available"
+      
       - name: Install and Configure OCI CLI
         if: steps.set-env.outputs.environment == 'dev'
         timeout-minutes: 5
         run: |
-          # Install OCI CLI using pip (faster than script)
+          # Install OCI CLI using pip
           pip3 install oci-cli
           
           # Configure OCI CLI
@@ -57,9 +78,19 @@ jobs:
           region=${{ secrets.OCI_REGION }}
           key_file=~/.oci/oci_api_key.pem
           EOF
-          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          
+          # Create private key file with proper formatting
+          cat > ~/.oci/oci_api_key.pem << 'EOK'
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOK
+          
           chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
+          
+          # Test OCI CLI configuration
+          echo "🔧 Testing OCI CLI configuration..."
+          oci iam region list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[0].\"name\"" --raw-output
+          echo "✅ OCI CLI configured successfully"
       
       - name: Bootstrap Resources Check (Dev Only)
         if: steps.set-env.outputs.environment == 'dev'
@@ -68,24 +99,42 @@ jobs:
           echo "🔍 Checking bootstrap resources for dev environment..."
           
           # Check if compartment exists
-          if ! oci iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
-            echo "❌ Compartment not found: ${{ secrets.OCI_COMPARTMENT_ID }}"
+          echo "📦 Checking compartment: ${{ secrets.OCI_COMPARTMENT_ID }}"
+          if oci iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
+            echo "✅ Compartment exists and is accessible"
+          else
+            echo "❌ Compartment not found or not accessible: ${{ secrets.OCI_COMPARTMENT_ID }}"
+            echo "💡 Tip: Check if:"
+            echo "   - The compartment OCID is correct"
+            echo "   - The user has permissions to read the compartment"
+            echo "   - The compartment exists in the tenancy"
             exit 1
           fi
-          echo "✅ Compartment exists"
           
           # Check if availability domain exists
-          if ! oci iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
+          echo "🌍 Checking availability domain: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
+          AD_RESULT=$(oci iam availability-domain list \
+            --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
+            --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" \
+            --raw-output)
+          
+          if [[ -n "$AD_RESULT" && "$AD_RESULT" != "[]" ]]; then
+            echo "✅ Availability domain exists: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
+          else
             echo "❌ Availability domain not found: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
+            echo "Available domains in tenancy:"
+            oci iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[].name" --raw-output
             exit 1
           fi
-          echo "✅ Availability domain exists"
           
           echo "🎉 All bootstrap resources verified for dev environment"
       
       - name: Replace Tokens with Secrets
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         run: |
+          # Create backup of terraform.tfvars
+          cp terraform.tfvars terraform.tfvars.backup
+          
           # Replace tokens with actual secret values
           sed -i 's/__TENANCY_OCID__/${{ secrets.OCI_TENANCY_OCID }}/g' terraform.tfvars
           sed -i 's/__USER_OCID__/${{ secrets.OCI_USER_OCID }}/g' terraform.tfvars
@@ -102,6 +151,8 @@ jobs:
           sed -i '/__PRIVATE_KEY__/r temp_private_key.txt' terraform.tfvars
           sed -i '/__PRIVATE_KEY__/d' terraform.tfvars
           rm temp_private_key.txt
+          
+          echo "🔧 Token replacement completed"
       
       - name: Terraform Init
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
