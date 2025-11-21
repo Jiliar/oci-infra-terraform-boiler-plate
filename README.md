@@ -8,24 +8,56 @@ Infraestructura como código para Oracle Cloud Infrastructure (OCI).
 oci/
 ├── modules/
 │   ├── networking/    # VCN, Subnets, Gateways, Security Lists
-│   ├── k8s-cluster/   # OKE Cluster, Node Pools (Flex Shapes)
-│   └── database/      # MySQL HeatWave, HA Cluster
+│   ├── k8s-cluster/   # OKE Cluster, Node Pools
+│   ├── database/      # PostgreSQL Database
+│   ├── istio/         # Service Mesh
+│   ├── load-balancer/ # Load Balancer
+│   ├── dns/           # DNS Zones
+│   ├── vault/         # Secrets Management
+│   ├── iam/           # IAM Policies
+│   ├── waf/           # Web Application Firewall
+│   ├── monitoring/    # Monitoring & Alerts
+│   └── ocir/          # Container Registry
 └── environments/
-    ├── dev/           # Basic Cluster, Ampere A1 (ARM), Standalone MySQL
-    └── prod/          # Enhanced Cluster, E4 Flex (AMD), HeatWave HA
+    ├── bootstrap/     # Terraform State Bucket
+    ├── dev/           # Development (10.0.0.0/16)
+    ├── test/          # Testing (10.1.0.0/16)
+    ├── staging/       # Staging (10.2.0.0/16)
+    └── prod/          # Production (10.3.0.0/16)
 ```
 
 ## Ambientes
 
-### Dev
+### Dev (10.0.0.0/16)
 - **OKE**: Basic Cluster (Free Tier)
-- **Nodes**: VM.Standard.A1.Flex (Ampere ARM)
-- **DB**: MySQL Standalone
+- **Nodes**: VM.Standard3.Flex (1 vCPU, 16GB)
+- **DB**: PostgreSQL Standalone (Free Tier)
+- **Endpoint**: Público
+- **Istio**: ✅
 
-### Prod
+### Test (10.1.0.0/16)
+- **OKE**: Basic Cluster
+- **Nodes**: VM.Standard3.Flex (1 vCPU, 16GB)
+- **DB**: PostgreSQL Standalone (Free Tier)
+- **Endpoint**: Público
+- **Istio**: ✅
+
+### Staging (10.2.0.0/16)
+- **OKE**: Basic Cluster
+- **Nodes**: VM.Standard.E4.Flex (1 vCPU, 8GB, 2 nodes)
+- **DB**: PostgreSQL (1 CPU, 1TB)
+- **Endpoint**: Privado
+- **WAF**: ✅
+- **Istio**: ✅
+
+### Prod (10.3.0.0/16)
 - **OKE**: Enhanced Cluster (SLA)
-- **Nodes**: VM.Standard.E4.Flex (AMD)
-- **DB**: MySQL HeatWave HA Cluster
+- **Nodes**: VM.Standard.E4.Flex (2 vCPU, 16GB, 3 nodes)
+- **DB**: PostgreSQL HA (2 CPU, 2TB)
+- **Endpoint**: Privado
+- **WAF**: ✅
+- **Monitoring**: ✅
+- **Istio**: ✅
 
 ## Uso
 
