@@ -36,9 +36,17 @@ jobs:
       - name: Install and Configure OCI CLI
         if: steps.set-env.outputs.environment == 'dev'
         run: |
-          curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh | bash -s -- --accept-all-defaults
-          echo "$HOME/bin" >> $GITHUB_PATH
+          # Install OCI CLI with timeout and error handling
+          timeout 300 bash -c 'curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh | bash -s -- --accept-all-defaults' || {
+            echo "OCI CLI installation failed or timed out, trying alternative method"
+            pip3 install oci-cli
+          }
           
+          # Add to PATH
+          echo "$HOME/bin" >> $GITHUB_PATH
+          export PATH="$HOME/bin:$PATH"
+          
+          # Configure OCI CLI
           mkdir -p ~/.oci
           cat > ~/.oci/config << EOF
           [DEFAULT]
@@ -51,6 +59,10 @@ jobs:
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
+          
+          # Verify installation
+          which oci || echo "OCI CLI not found in PATH"
+          oci --version || echo "OCI CLI version check failed"
       
       - name: Bootstrap Resources Check (Dev Only)
         if: steps.set-env.outputs.environment == 'dev'
@@ -59,15 +71,26 @@ jobs:
           
           export PATH="$HOME/bin:$PATH"
           
+          # Try different OCI CLI paths
+          OCI_CMD="oci"
+          if [ -f "$HOME/bin/oci" ]; then
+            OCI_CMD="$HOME/bin/oci"
+          elif command -v oci >/dev/null 2>&1; then
+            OCI_CMD="oci"
+          else
+            echo "❌ OCI CLI not found"
+            exit 1
+          fi
+          
           # Check if compartment exists
-          if ! $HOME/bin/oci iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
+          if ! $OCI_CMD iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
             echo "❌ Compartment not found: ${{ secrets.OCI_COMPARTMENT_ID }}"
             exit 1
           fi
           echo "✅ Compartment exists"
           
           # Check if availability domain exists
-          if ! $HOME/bin/oci iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
+          if ! $OCI_CMD iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
             echo "❌ Availability domain not found: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
             exit 1
           fi
