@@ -2,6 +2,10 @@ output "lb_id" {
   value = oci_load_balancer_load_balancer.lb.id
 }
 
+output "load_balancer_id" {
+  value = oci_load_balancer_load_balancer.lb.id
+}
+
 output "ip_addresses" {
   value = oci_load_balancer_load_balancer.lb.ip_address_details
 }
