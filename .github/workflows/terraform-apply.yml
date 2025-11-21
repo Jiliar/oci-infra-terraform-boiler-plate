@@ -217,9 +217,11 @@ jobs:
                 fi
                 ;;
               "vault")
-                VAULT_NAME=$(grep '^vault_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$VAULT_NAME" ]] && oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$VAULT_NAME" 2>/dev/null | grep -q "$VAULT_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
+                # Check if ANY vault exists in compartment (due to tenancy limit)
+                if oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" 2>/dev/null | grep -q "display-name"; then
+                  echo "⚠️ Vault already exists in compartment - skipping due to tenancy limit"
+                  echo "skip_apply=true" >> $GITHUB_OUTPUT
+                  exit 0
                 fi
                 ;;
               "waf")
