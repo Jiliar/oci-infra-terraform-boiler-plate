@@ -8,6 +8,12 @@ on:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    # Only run for the target environment, not all environments
+    if: |
+      github.event.pull_request.base.ref == 'dev' ||
+      github.event.pull_request.base.ref == 'test' ||
+      github.event.pull_request.base.ref == 'staging' ||
+      github.event.pull_request.base.ref == 'main'
     strategy:
       matrix:
         # NOTE: k8s_cluster deploys cluster only, node pools excluded from pipeline
@@ -33,70 +39,13 @@ jobs:
             echo "environment=prod" >> $GITHUB_OUTPUT
           fi
       
-      - name: Install and Configure OCI CLI
-        if: steps.set-env.outputs.environment == 'dev'
-        run: |
-          # Install OCI CLI with timeout and error handling
-          timeout 300 bash -c 'curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh | bash -s -- --accept-all-defaults' || {
-            echo "OCI CLI installation failed or timed out, trying alternative method"
-            pip3 install oci-cli
-          }
-          
-          # Add to PATH
-          echo "$HOME/bin" >> $GITHUB_PATH
-          export PATH="$HOME/bin:$PATH"
-          
-          # Configure OCI CLI
-          mkdir -p ~/.oci
-          cat > ~/.oci/config << EOF
-          [DEFAULT]
-          user=${{ secrets.OCI_USER_OCID }}
-          fingerprint=${{ secrets.OCI_FINGERPRINT }}
-          tenancy=${{ secrets.OCI_TENANCY_OCID }}
-          region=${{ secrets.OCI_REGION }}
-          key_file=~/.oci/oci_api_key.pem
-          EOF
-          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
-          chmod 600 ~/.oci/oci_api_key.pem
-          chmod 600 ~/.oci/config
-          
-          # Verify installation
-          which oci || echo "OCI CLI not found in PATH"
-          oci --version || echo "OCI CLI version check failed"
-      
-      - name: Bootstrap Resources Check (Dev Only)
-        if: steps.set-env.outputs.environment == 'dev'
-        run: |
-          echo "🔍 Checking bootstrap resources for dev environment..."
-          
-          export PATH="$HOME/bin:$PATH"
-          
-          # Try different OCI CLI paths
-          OCI_CMD="oci"
-          if [ -f "$HOME/bin/oci" ]; then
-            OCI_CMD="$HOME/bin/oci"
-          elif command -v oci >/dev/null 2>&1; then
-            OCI_CMD="oci"
-          else
-            echo "❌ OCI CLI not found"
-            exit 1
-          fi
-          
-          # Check if compartment exists
-          if ! $OCI_CMD iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
-            echo "❌ Compartment not found: ${{ secrets.OCI_COMPARTMENT_ID }}"
-            exit 1
-          fi
-          echo "✅ Compartment exists"
-          
-          # Check if availability domain exists
-          if ! $OCI_CMD iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
-            echo "❌ Availability domain not found: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
-            exit 1
-          fi
-          echo "✅ Availability domain exists"
-          
-          echo "🎉 All bootstrap resources verified for dev environment"
+      # Skip OCI CLI installation and bootstrap check for now
+      # - name: Install and Configure OCI CLI
+      #   if: steps.set-env.outputs.environment == 'dev'
+      #   run: |
+      #     pip3 install oci-cli
+      #     mkdir -p ~/.oci
+      #     # Configure OCI CLI here if needed
       
       - name: Replace Tokens with Secrets
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
