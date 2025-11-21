@@ -18,6 +18,7 @@ jobs:
     strategy:
       matrix:
         # NOTE: k8s_cluster deploys cluster only, node pools excluded from pipeline
+        # NOTE: monitoring must be last as it depends on other resources (db_id, lb_id, etc.)
         module: [networking, k8s_cluster, database, ocir, load_balancer, dns, vault, iam, waf, monitoring]
     
     steps:
@@ -234,7 +235,14 @@ jobs:
                 fi
                 ;;
               "monitoring")
-                # No se hace check en OCI para Monitoring
+                # Monitoring depends on other resources, check if they exist first
+                if terraform state list 2>/dev/null | grep -q "module.database" && terraform state list 2>/dev/null | grep -q "module.load_balancer"; then
+                  echo "✅ Monitoring dependencies ready"
+                else
+                  echo "⚠️ Monitoring dependencies not ready - skipping"
+                  echo "skip_apply=true" >> $GITHUB_OUTPUT
+                  exit 0
+                fi
                 ;;
               *)
                 # No se hace check en OCI para módulos no definidos
@@ -255,7 +263,6 @@ jobs:
           fi
       
       - name: Import Existing Resources
-        # ¡IMPORTANTE! Este paso ahora se ejecutará si se encuentra el recurso en OCI pero no en el estado.
         if: steps.check-resources.outputs.needs_import == 'true'
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         timeout-minutes: 10
