@@ -271,7 +271,6 @@ jobs:
                 terraform import module.networking.oci_core_vcn.vcn "$VCN_OCID"
               fi
               ;;
-            # ... (Resto de la lógica de importación, que debe mapear los OCIDs encontrados a los paths de recursos de Terraform)
             "k8s_cluster")
               CLUSTER_OCID=$(oci ce cluster list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev-oke')].id | [0]" --raw-output 2>/dev/null)
               if [[ -n "$CLUSTER_OCID" && "$CLUSTER_OCID" != "null" ]]; then
@@ -291,6 +290,30 @@ jobs:
               if [[ -n "$LB_OCID" && "$LB_OCID" != "null" ]]; then
                 echo "Found load balancer OCID: $LB_OCID"
                 terraform import module.load_balancer.oci_load_balancer_load_balancer.lb "$LB_OCID"
+              fi
+              ;;
+            "vault")
+              # Lógica de Importación para KMS Vault y su Key
+              VAULT_NAME=$(grep '^vault_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "addon-ai-dev-vault")
+              KEY_NAME=$(grep '^key_display_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "addon-ai-dev-vault-key")
+
+              # 1. Buscar y obtener el OCID del Vault
+              VAULT_OCID=$(oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$VAULT_NAME" --query "data[?\"display-name\"=='$VAULT_NAME'].id | [0]" --raw-output 2>/dev/null)
+              
+              if [[ -n "$VAULT_OCID" && "$VAULT_OCID" != "null" ]]; then
+                echo "Found Vault OCID: $VAULT_OCID. Importing..."
+                terraform import module.vault.oci_kms_vault.vault "$VAULT_OCID"
+                
+                # 2. Si el Vault fue importado, buscar y obtener el OCID de la Key
+                # Nota: Asume que el recurso 'oci_kms_key.kms_key' usa un data source para obtener el endpoint del vault
+                KEY_OCID=$(oci kms key list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --vault-id "$VAULT_OCID" --query "data[?\"display-name\"=='$KEY_NAME'].id | [0]" --raw-output 2>/dev/null)
+                
+                if [[ -n "$KEY_OCID" && "$KEY_OCID" != "null" ]]; then
+                    echo "Found Key OCID: $KEY_OCID. Importing..."
+                    terraform import module.vault.oci_kms_key.kms_key "$KEY_OCID"
+                fi
+              else
+                echo "Vault $VAULT_NAME not found in OCI. Should proceed with creation."
               fi
               ;;
             *)
