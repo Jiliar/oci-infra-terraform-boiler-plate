@@ -7,9 +7,6 @@ on:
   pull_request:
     branches: [dev, test, staging, main]
     types: [closed]
-    paths:
-      - 'environments/**'
-      - 'modules/**'
 
 jobs:
   apply:
