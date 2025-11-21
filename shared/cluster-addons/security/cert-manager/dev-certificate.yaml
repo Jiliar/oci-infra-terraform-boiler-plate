@@ -1,0 +1,27 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dev-addon-ai-tls
+  namespace: istio-system
+spec:
+  secretName: dev-addon-ai-tls
+  issuerRef:
+    name: letsencrypt-staging  # Usar staging para dev
+    kind: ClusterIssuer
+  dnsNames:
+  - dev.addon-ai.com
+  - api.dev.addon-ai.com
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dev-addon-ai-tls-prod
+  namespace: istio-system
+spec:
+  secretName: dev-addon-ai-tls-prod
+  issuerRef:
+    name: letsencrypt-prod  # Para producción
+    kind: ClusterIssuer
+  dnsNames:
+  - dev.addon-ai.com
+  - api.dev.addon-ai.com

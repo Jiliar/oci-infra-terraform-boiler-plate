@@ -1,0 +1,68 @@
+# Addon AI Frontend - Test Environment
+replicaCount: 1
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-frontend
+  tag: "test-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: test.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 150m
+    memory: 192Mi
+  requests:
+    cpu: 75m
+    memory: 96Mi
+
+autoscaling:
+  enabled: false
+
+env:
+  - name: NODE_ENV
+    value: "test"
+  - name: REACT_APP_API_URL
+    value: "https://api.test.addon-ai.com"
+  - name: REACT_APP_ENVIRONMENT
+    value: "test"
+  - name: REACT_APP_ENABLE_DEBUG
+    value: "true"
+  - name: REACT_APP_MOCK_DATA
+    value: "true"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-test-gateway
+    hosts:
+      - test.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

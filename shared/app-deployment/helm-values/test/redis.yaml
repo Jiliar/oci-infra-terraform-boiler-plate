@@ -1,0 +1,43 @@
+# Redis - Test Environment
+architecture: standalone
+
+auth:
+  enabled: false
+
+master:
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  
+  persistence:
+    enabled: false
+    size: 500Mi
+
+metrics:
+  enabled: false
+
+networkPolicy:
+  enabled: false
+
+serviceAccount:
+  create: true
+
+# Test specific configurations
+commonConfiguration: |-
+  # Redis configuration for testing
+  maxmemory 64mb
+  maxmemory-policy allkeys-lru
+  save ""
+
+# Istio specific
+istio:
+  enabled: true
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

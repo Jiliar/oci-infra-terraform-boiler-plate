@@ -1,0 +1,87 @@
+# Addon AI API - Production Environment
+replicaCount: 3
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-api
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: api.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: addon-ai-tls
+      hosts:
+        - api.addon-ai.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  - name: NODE_ENV
+    value: "production"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: addon-ai-secrets
+        key: database-url
+  - name: REDIS_URL
+    value: "redis://addon-ai-redis:6379"
+  - name: LOG_LEVEL
+    value: "info"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - addon-ai-api
+        topologyKey: kubernetes.io/hostname
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-prod-gateway
+    hosts:
+      - api.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

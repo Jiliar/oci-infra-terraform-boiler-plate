@@ -1,0 +1,45 @@
+# Redis - Staging Environment
+architecture: standalone
+
+auth:
+  enabled: true
+  password: "staging-redis-password"
+
+master:
+  resources:
+    limits:
+      cpu: 300m
+      memory: 512Mi
+    requests:
+      cpu: 150m
+      memory: 256Mi
+  
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: "oci-bv"
+
+metrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+networkPolicy:
+  enabled: true
+
+serviceAccount:
+  create: true
+
+# Istio specific
+istio:
+  enabled: true
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

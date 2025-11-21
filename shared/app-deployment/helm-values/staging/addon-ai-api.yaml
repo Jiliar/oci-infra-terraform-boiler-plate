@@ -1,0 +1,72 @@
+# Addon AI API - Staging Environment
+replicaCount: 2
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-api
+  tag: "staging-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: api.staging.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 750m
+    memory: 768Mi
+  requests:
+    cpu: 375m
+    memory: 384Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+env:
+  - name: NODE_ENV
+    value: "staging"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: addon-ai-secrets
+        key: database-url
+  - name: REDIS_URL
+    value: "redis://addon-ai-redis:6379"
+  - name: LOG_LEVEL
+    value: "info"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-staging-gateway
+    hosts:
+      - api.staging.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

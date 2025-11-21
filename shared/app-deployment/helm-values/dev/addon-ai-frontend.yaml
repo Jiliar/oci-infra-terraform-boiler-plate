@@ -1,0 +1,64 @@
+# Addon AI Frontend - Development Environment
+replicaCount: 1
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-frontend
+  tag: "dev-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: dev.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+
+env:
+  - name: NODE_ENV
+    value: "development"
+  - name: REACT_APP_API_URL
+    value: "https://api.dev.addon-ai.com"
+  - name: REACT_APP_ENVIRONMENT
+    value: "development"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-dev-gateway
+    hosts:
+      - dev.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

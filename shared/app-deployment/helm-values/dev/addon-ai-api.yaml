@@ -1,0 +1,72 @@
+# Addon AI API - Development Environment
+replicaCount: 1
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-api
+  tag: "dev-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: api.dev.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+env:
+  - name: NODE_ENV
+    value: "development"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: addon-ai-secrets
+        key: database-url
+  - name: REDIS_URL
+    value: "redis://addon-ai-redis:6379"
+  - name: LOG_LEVEL
+    value: "debug"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-dev-gateway
+    hosts:
+      - api.dev.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

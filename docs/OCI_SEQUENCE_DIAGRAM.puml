@@ -1,0 +1,150 @@
+@startuml OCI Request Flow - Complete Sequence
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam BoxPadding 10
+skinparam ParticipantPadding 20
+
+title OCI Microservices Request Flow (OKE + Istio + WAF)
+
+actor "End User" as user
+participant "OCI DNS" as dns
+participant "WAF Policy\nOWASP Rules" as waf
+participant "Load Balancer\nFlexible Shape" as lb
+participant "Istio Ingress\nGateway" as istio_ingress
+participant "Istiod\nControl Plane" as istiod
+participant "Service Pod\n+ Envoy Sidecar" as service
+participant "IAM Dynamic\nGroup" as iam
+participant "OCI Vault\nKMS" as vault
+participant "PostgreSQL DB\nAutonomous" as postgres
+participant "OCI Logging" as logging
+
+== DNS Resolution & Security ==
+user -> dns: DNS Query (api.example.com)
+activate dns
+dns --> user: Load Balancer IP
+deactivate dns
+
+user -> waf: HTTPS Request (443)
+activate waf
+waf -> waf: SQL Injection Detection\n(942100, 942200)
+waf -> waf: XSS Protection\n(941100, 941110)
+waf -> waf: OWASP ModSecurity Rules
+alt WAF Rule Violation
+    waf --> user: 403 Forbidden
+else Request Allowed
+    waf -> lb: Forward Request
+    deactivate waf
+end
+
+== Load Balancing & Routing ==
+activate lb
+lb -> lb: TLS Termination
+lb -> lb: Health Check Validation
+lb -> lb: Backend Set Selection
+lb -> istio_ingress: Forward to LoadBalancer
+lb -> logging: Log LB Metrics
+deactivate lb
+
+== Service Mesh Entry ==
+activate istio_ingress
+istio_ingress -> istiod: Request mTLS Certificate
+activate istiod
+istiod --> istio_ingress: Issue Certificate
+deactivate istiod
+
+istio_ingress -> istio_ingress: Apply VirtualService Rules\nApply DestinationRule\nRoute by Path/Header
+
+istio_ingress -> service: Forward Request\n(mTLS Encrypted)
+deactivate istio_ingress
+
+== Service Authentication & Authorization ==
+activate service
+service -> service: Envoy Intercepts Request
+service -> istiod: Validate mTLS Certificate
+activate istiod
+istiod --> service: Certificate Valid
+deactivate istiod
+
+service -> iam: Request Instance Principal
+activate iam
+iam -> iam: Validate Dynamic Group\nMembership
+iam --> service: OCI Auth Token
+deactivate iam
+
+== Secrets Retrieval ==
+service -> vault: Get DB Credentials\n(Using Instance Principal)
+activate vault
+vault -> vault: Validate IAM Policy
+vault -> vault: Decrypt with KMS Key
+vault --> service: DB Username/Password
+deactivate vault
+
+== Database Operations ==
+service -> service: Execute Business Logic
+service -> postgres: SQL Query\n(Connection Pool)
+activate postgres
+postgres -> postgres: Execute Query
+postgres -> logging: Log Slow Queries
+postgres --> service: Query Result
+deactivate postgres
+
+== Response Flow ==
+service -> service: Build Response
+service -> logging: Log Application Metrics
+service -> istio_ingress: Return Response\n(mTLS Encrypted)
+deactivate service
+
+activate istio_ingress
+istio_ingress -> lb: Return Response
+deactivate istio_ingress
+
+activate lb
+lb -> waf: Response
+deactivate lb
+
+activate waf
+waf -> user: HTTPS Response
+deactivate waf
+
+== Observability & Monitoring ==
+note over logging
+  **Centralized Monitoring:**
+  • Load Balancer Access Logs
+  • WAF Metrics & Blocked Requests
+  • Container Logs (stdout/stderr)
+  • PostgreSQL Performance Metrics
+  • Istio Telemetry Data
+  • OCI Monitoring Alarms
+end note
+
+== Error Handling Scenarios ==
+alt Database Connection Failure
+    service -> service: Retry with Exponential Backoff
+    service -> istio_ingress: Circuit Breaker Triggered
+    istio_ingress -> lb: 503 Service Unavailable
+    lb -> user: Error Response
+else Service Timeout
+    istio_ingress -> istio_ingress: Timeout (30s)
+    istio_ingress -> lb: 504 Gateway Timeout
+    lb -> user: Timeout Response
+else WAF Rate Limit Exceeded
+    waf -> waf: Block Request
+    waf -> logging: Log Rate Limit Event
+    waf -> user: 429 Too Many Requests
+else WAF OWASP Rule Violation
+    waf -> waf: Block Request (SQLi/XSS)
+    waf -> logging: Log Security Event
+    waf -> user: 403 Forbidden
+else Vault Access Denied
+    vault -> service: 403 Access Denied
+    service -> logging: Log Security Event
+    service -> istio_ingress: 500 Internal Error
+    istio_ingress -> user: Error Response
+else IAM Authentication Failure
+    iam -> service: Authentication Failed
+    service -> logging: Log IAM Error
+    service -> istio_ingress: 401 Unauthorized
+    istio_ingress -> user: Error Response
+end
+
+@enduml

@@ -1,0 +1,5 @@
+terraform {
+  backend "http" {
+    address = "https://objectstorage.us-ashburn-1.oraclecloud.com/n/namespace/b/terraform-state/o/dev/terraform.tfstate"
+  }
+}

@@ -1,0 +1,82 @@
+# Addon AI Frontend - Production Environment
+replicaCount: 3
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-frontend
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: addon-ai-tls
+      hosts:
+        - addon-ai.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  - name: NODE_ENV
+    value: "production"
+  - name: REACT_APP_API_URL
+    value: "https://api.addon-ai.com"
+  - name: REACT_APP_ENVIRONMENT
+    value: "production"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - addon-ai-frontend
+        topologyKey: kubernetes.io/hostname
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-prod-gateway
+    hosts:
+      - addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

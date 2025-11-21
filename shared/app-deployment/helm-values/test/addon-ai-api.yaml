@@ -1,0 +1,73 @@
+# Addon AI API - Test Environment
+replicaCount: 1
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-api
+  tag: "test-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: api.test.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 384Mi
+  requests:
+    cpu: 150m
+    memory: 192Mi
+
+autoscaling:
+  enabled: false
+
+env:
+  - name: NODE_ENV
+    value: "test"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: addon-ai-secrets
+        key: database-url
+  - name: REDIS_URL
+    value: "redis://addon-ai-redis:6379"
+  - name: LOG_LEVEL
+    value: "debug"
+  - name: ENABLE_TEST_ROUTES
+    value: "true"
+  - name: MOCK_EXTERNAL_APIS
+    value: "true"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-test-gateway
+    hosts:
+      - api.test.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

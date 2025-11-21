@@ -1,0 +1,43 @@
+# Redis - Development Environment
+architecture: standalone
+
+auth:
+  enabled: false
+
+master:
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  persistence:
+    enabled: false
+    size: 1Gi
+
+metrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+networkPolicy:
+  enabled: false
+
+serviceAccount:
+  create: true
+
+# Istio specific
+istio:
+  enabled: true
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

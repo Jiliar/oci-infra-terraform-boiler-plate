@@ -1,0 +1,67 @@
+# Addon AI Frontend - Staging Environment
+replicaCount: 2
+
+image:
+  repository: ax7ur15nzqvd.ocir.io/addon-ai/addon-ai-frontend
+  tag: "staging-latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "istio"
+  annotations:
+    kubernetes.io/ingress.class: istio
+  hosts:
+    - host: staging.addon-ai.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 384Mi
+  requests:
+    cpu: 150m
+    memory: 192Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 75
+
+env:
+  - name: NODE_ENV
+    value: "staging"
+  - name: REACT_APP_API_URL
+    value: "https://api.staging.addon-ai.com"
+  - name: REACT_APP_ENVIRONMENT
+    value: "staging"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Istio specific
+istio:
+  enabled: true
+  virtualService:
+    enabled: true
+    gateways:
+      - addon-ai-staging-gateway
+    hosts:
+      - staging.addon-ai.com
+  destinationRule:
+    enabled: true
+    trafficPolicy:
+      tls:
+        mode: ISTIO_MUTUAL

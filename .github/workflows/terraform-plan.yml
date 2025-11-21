@@ -1,0 +1,104 @@
+name: Terraform Plan
+
+on:
+  push:
+    branches: [dev, test, staging, main]
+    paths:
+      - 'environments/**'
+      - 'modules/**'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # NOTE: k8s_cluster deploys cluster only, node pools excluded from pipeline
+        module: [networking, k8s_cluster, database, ocir, load_balancer, dns, vault, iam, waf, monitoring]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Set Environment
+        id: set-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/test" ]]; then
+            echo "environment=test" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Configure OCI CLI
+        run: |
+          mkdir -p ~/.oci
+          cat > ~/.oci/config << EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/oci_api_key.pem
+          EOF
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/config
+      
+      - name: Bootstrap Resources Check (Dev Only)
+        if: steps.set-env.outputs.environment == 'dev'
+        run: |
+          echo "🔍 Checking bootstrap resources for dev environment..."
+          
+          # Check if compartment exists
+          if ! oci iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
+            echo "❌ Compartment not found: ${{ secrets.OCI_COMPARTMENT_ID }}"
+            exit 1
+          fi
+          echo "✅ Compartment exists"
+          
+          # Check if availability domain exists
+          if ! oci iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
+            echo "❌ Availability domain not found: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
+            exit 1
+          fi
+          echo "✅ Availability domain exists"
+          
+          echo "🎉 All bootstrap resources verified for dev environment"
+      
+      - name: Setup Terraform Variables
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: |
+          cat > terraform.auto.tfvars << EOF
+          tenancy_ocid = "${{ secrets.OCI_TENANCY_OCID }}"
+          user_ocid = "${{ secrets.OCI_USER_OCID }}"
+          fingerprint = "${{ secrets.OCI_FINGERPRINT }}"
+          private_key = <<EOK
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOK
+          region = "${{ secrets.OCI_REGION }}"
+          compartment_id = "${{ secrets.OCI_COMPARTMENT_ID }}"
+          availability_domain = "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
+          db_admin_password = "${{ secrets.DB_ADMIN_PASSWORD }}"
+          EOF
+      
+      - name: Terraform Init
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: |
+          echo "🚀 Initializing Terraform for ${{ steps.set-env.outputs.environment }} environment..."
+          terraform init
+      
+      - name: Terraform Plan Module
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: |
+          if [[ "${{ matrix.module }}" == "k8s_cluster" ]]; then
+            # Exclude node pools from k8s_cluster deployment
+            terraform plan -target=module.k8s_cluster.oci_containerengine_cluster.oke
+          else
+            terraform plan -target=module.${{ matrix.module }}
+          fi

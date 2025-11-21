@@ -1,0 +1,198 @@
+@startuml OCI Microservices Architecture (OKE + Istio)
+skinparam shadowing false
+skinparam roundcorner 20
+skinparam defaultTextAlignment center
+skinparam nodeBackgroundColor #FFFFFF
+skinparam componentStyle uml2
+skinparam packageStyle rectangle
+
+title OCI Microservices Architecture (OKE + Istio + WAF)
+
+' ===== EXTERNAL ACCESS =====
+package "External Access" #E3F2FD {
+    actor "End User" as user
+    component "OCI DNS\nPrimary Zone" as dns
+}
+
+' ===== SECURITY LAYER =====
+package "Security Layer" #FFEBEE {
+    component "WAF Policy\nOWASP Rules\nPrevention Mode\nSQLi: 942100, 942200\nXSS: 941100, 941110" as waf
+}
+
+' ===== PUBLIC NETWORK ZONE =====
+package "Public Network Zone" #E0F2F1 {
+    component "Load Balancer\nFlexible Shape\n(Standalone)" as lb
+}
+
+' ===== VCN (10.0.0.0/16) =====
+package "VCN (10.0.0.0/16)" #F5F5F5 {
+    
+    package "Public Subnet (10.0.3.0/24)" #E8F5E9 {
+        component "Internet Gateway" as igw
+        component "LB Subnet\nprod-lb" as lb_subnet
+    }
+    
+    package "Private Subnets" #FFF3E0 {
+        component "NAT Gateway" as nat
+        component "Service Gateway\nOracle Services" as sg
+        
+        package "Control Plane Subnet (10.0.1.0/24)" #E1BEE7 {
+            component "OKE Control Plane\nBasic Cluster\nManaged by Oracle" as control_plane
+        }
+        
+        package "Node Subnet (10.0.2.0/24)" #FFF9C4 {
+            frame "Oracle Kubernetes Engine (OKE)" #FFFFFF {
+                
+                package "Istio Service Mesh" #E1F5FE {
+                    component "Istio Ingress\nGateway\n(LoadBalancer)" as istio_ingress
+                    component "Istiod\nControl Plane" as istiod
+                    component "Gateway\nVirtualService\nDestinationRule" as istio_config
+                }
+
+                package "Application Workloads" #F3E5F5 {
+                    component "Service One\n+ Envoy Sidecar" as service_one
+                    component "Service Two\n+ Envoy Sidecar" as service_two
+                    component "Other Services\n+ Envoy Sidecars" as others
+                }
+
+                package "Node Infrastructure" #FFF9C4 {
+                    node "Node Pool\nVM.Standard.A1.Flex\n1 OCPU / 6GB RAM\n1 node\nARM (Free Tier)" as nodes
+                }
+            }
+        }
+        
+        package "Database Subnet (10.0.4.0/24)" #FFE0B2 {
+            database "PostgreSQL DB 1\nService One\nPostgreSQL 15\n1 OCPU / 1TB" as postgres1
+            database "PostgreSQL DB 2\nService Two\nPostgreSQL 15\n1 OCPU / 1TB" as postgres2
+        }
+    }
+}
+
+' ===== MANAGEMENT =====
+package "Management" #E8EAF6 {
+    component "OCIR\nContainer Registry" as ocir
+    component "OCI Monitoring\nMetrics & Alarms" as monitoring
+    component "OCI Logging\nLog Analytics" as logging
+}
+
+' ===== AUTH / SECRETS =====
+package "Authorization/Secrets" #FCE4EC {
+    component "OCI Vault\nKMS Keys" as vault
+    component "IAM Policies\nDynamic Groups" as iam
+}
+
+' ===== CONNECTIONS (TRAFFIC FLOW) =====
+
+' User Traffic
+user --> dns : "DNS Query"
+dns --> waf : "HTTPS Request"
+waf --> lb : "Filtered Traffic"
+lb --> lb_subnet : "Public LB Subnet"
+lb_subnet --> igw : "Internet Gateway"
+lb_subnet --> istio_ingress : "Forward to Istio"
+
+' Service Mesh Routing
+istio_config ..> istio_ingress : "Configure"
+istio_ingress --> service_one : "/api/service-one"
+istio_ingress --> service_two : "/api/service-two"
+istio_ingress --> others : "Default Route"
+
+' Istio Management
+control_plane ..> istiod : "Managed by OKE"
+istiod ..> istio_ingress : "Push Config"
+istiod ..> service_one : "mTLS + Policies"
+istiod ..> service_two : "mTLS + Policies"
+istiod ..> others : "Sidecar Injection"
+
+' Data Persistence
+service_one --> postgres1 : "SQL Read/Write"
+service_two --> postgres2 : "SQL Read/Write"
+
+' Security and Credentials
+service_one ..> vault : "Fetch DB Credentials"
+service_two ..> vault : "Fetch DB Credentials"
+iam ..> service_one : "Dynamic Group Auth"
+iam ..> service_two : "Dynamic Group Auth"
+
+' Infrastructure and Network
+nodes ..> ocir : "Pull Images"
+nodes ..> nat : "Outbound Traffic"
+nodes ..> sg : "Oracle Services"
+
+' Monitoring
+lb ..> monitoring : "LB Metrics"
+lb ..> logging : "Access Logs"
+postgres1 ..> monitoring : "DB Metrics"
+postgres1 ..> logging : "DB Logs"
+postgres2 ..> monitoring : "DB Metrics"
+postgres2 ..> logging : "DB Logs"
+nodes ..> monitoring : "Node Metrics"
+nodes ..> logging : "Container Logs"
+waf ..> logging : "Security Events"
+
+' ===== NOTES =====
+
+note right of postgres1
+  <b>Data Layer Spec:</b>
+  • PostgreSQL 15 Autonomous DB
+  • 2 Instances (1 per Service)
+  • 1 OCPU / 1TB Storage each
+  • Automated Backups (7 days)
+  • Standalone (No HA)
+  • mTLS Required
+  • Private Subnet Only
+end note
+
+note left of istio_ingress
+  <b>Istio Service Mesh:</b>
+  • Istio 1.20.0
+  • Traffic Management
+  • mTLS Security (STRICT)
+  • Gateway + VirtualService
+  • DestinationRule
+  • PeerAuthentication
+  • AuthorizationPolicy
+end note
+
+note bottom of waf
+  <b>WAF Protection:</b>
+  • SQL Injection (942100, 942200)
+  • XSS Protection (941100, 941110)
+  • OWASP ModSecurity Rules
+  • Prevention/Detection Mode
+  • Custom Protection Rules
+end note
+
+note top of nat
+  <b>Network Optimization:</b>
+  • NAT Gateway for egress
+  • Service Gateway for Oracle Services
+  • Internet Gateway for public access
+  • Cost vs HA Trade-off
+end note
+
+note right of control_plane
+  <b>OKE Control Plane:</b>
+  • Basic Cluster (Free Tier)
+  • Kubernetes v1.28.2
+  • Fully Managed by Oracle
+  • Private Endpoint
+  • Flannel CNI
+end note
+
+legend bottom
+  <b>Architecture Key Features</b>
+  |= Component |= Description |
+  | OKE Basic Cluster | Free Tier Kubernetes |
+  | ARM Instances | VM.Standard.A1.Flex (Free Tier) |
+  | IAM Policies | Dynamic Groups for Auth |
+  | Istio 1.20.0 | Service Mesh + mTLS |
+  | WAF Prevention | OWASP SQLi + XSS Protection |
+  | PostgreSQL x2 | Database per Service Pattern |
+  | OCIR | Private Container Registry |
+  | OCI Vault | KMS Key Management |
+  | Service Gateway | Private Oracle Services Access |
+  |===
+end legend
+
+@enduml
