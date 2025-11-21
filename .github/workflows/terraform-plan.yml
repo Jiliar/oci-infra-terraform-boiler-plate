@@ -102,7 +102,7 @@ jobs:
         run: |
           if [[ "${{ matrix.module }}" == "k8s_cluster" ]]; then
             # Exclude node pools from k8s_cluster deployment
-            terraform plan -target=module.k8s_cluster.oci_containerengine_cluster.oke
+            terraform plan -input=false -target=module.k8s_cluster.oci_containerengine_cluster.oke
           else
-            terraform plan -target=module.${{ matrix.module }}
+            terraform plan -input=false -target=module.${{ matrix.module }}
           fi
