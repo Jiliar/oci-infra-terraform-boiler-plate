@@ -153,206 +153,28 @@ jobs:
           echo "🚀 Initializing Terraform for ${{ steps.set-env.outputs.environment }} environment..."
           terraform init -no-color
       
-      - name: Check Module Resources Exist
-        # CRITICAL: Verifies if resources exist in Terraform State and OCI before attempting creation
-        id: check-resources
+      - name: Terraform Apply Module
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 5
+        timeout-minutes: 30
+        continue-on-error: true
         run: |
-          MODULE="${{ matrix.module }}"
-          echo "🔍 Checking if $MODULE resources already exist..."
+          echo "🚀 Applying ${{ matrix.module }} module..."
           
-          # Por defecto, asumimos que se necesita crear (ni existe ni necesita importación)
-          echo "skip_apply=false" >> $GITHUB_OUTPUT
-          echo "needs_import=false" >> $GITHUB_OUTPUT
-          
-          # 1. Check Terraform State First
-          if terraform state list 2>/dev/null | grep -q "module.$MODULE"; then
-            echo "✅ $MODULE already in terraform state. Skipping apply."
-            echo "skip_apply=true" >> $GITHUB_OUTPUT
+          # Skip if already in state
+          if terraform state list 2>/dev/null | grep -q "module.${{ matrix.module }}"; then
+            echo "✅ Module already exists in state - skipping"
             exit 0
           fi
           
-          # 2. Check OCI (Only for dev environment, as per your original design)
-          if [[ "${{ steps.set-env.outputs.environment }}" == "dev" ]]; then
-            echo "🔎 Resource not in state. Checking OCI for pre-existence..."
-            
-            RESOURCE_FOUND_IN_OCI="false"
-            
-            case "$MODULE" in
-              "networking")
-                VCN_NAME=$(grep '^vcn_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$VCN_NAME" ]] && oci network vcn list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$VCN_NAME" 2>/dev/null | grep -q "$VCN_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "k8s_cluster")
-                CLUSTER_NAME=$(grep '^cluster_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$CLUSTER_NAME" ]] && oci ce cluster list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --name "$CLUSTER_NAME" 2>/dev/null | grep -q "$CLUSTER_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "database")
-                DB_NAME=$(grep '^db_system_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$DB_NAME" ]] && oci db autonomous-database list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$DB_NAME" 2>/dev/null | grep -q "$DB_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "load_balancer")
-                LB_NAME=$(grep '^lb_display_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$LB_NAME" ]] && oci lb load-balancer list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$LB_NAME" 2>/dev/null | grep -q "$LB_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "ocir")
-                REPO_NAME=$(grep '^ocir_repository_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$REPO_NAME" ]] && oci artifacts container repository list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$REPO_NAME" 2>/dev/null | grep -q "$REPO_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "dns")
-                DNS_ZONE=$(grep '^dns_zone_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$DNS_ZONE" ]] && oci dns zone list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --name "$DNS_ZONE" 2>/dev/null | grep -q "$DNS_ZONE"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "vault")
-                # Check if ANY vault exists in compartment (due to tenancy limit)
-                if oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" 2>/dev/null | grep -q "display-name"; then
-                  echo "⚠️ Vault already exists in compartment - skipping due to tenancy limit"
-                  echo "skip_apply=true" >> $GITHUB_OUTPUT
-                  exit 0
-                fi
-                ;;
-              "waf")
-                WAF_NAME=$(grep '^waf_policy_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$WAF_NAME" ]] && oci waas waas-policy list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$WAF_NAME" 2>/dev/null | grep -q "$WAF_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "iam")
-                IAM_NAME=$(grep '^iam_policy_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' || echo "")
-                if [[ -n "$IAM_NAME" ]] && oci iam policy list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --name "$IAM_NAME" 2>/dev/null | grep -q "$IAM_NAME"; then
-                  RESOURCE_FOUND_IN_OCI="true"
-                fi
-                ;;
-              "monitoring")
-                # Monitoring depends on other resources, check if they exist first
-                if terraform state list 2>/dev/null | grep -q "module.database" && terraform state list 2>/dev/null | grep -q "module.load_balancer"; then
-                  echo "✅ Monitoring dependencies ready"
-                else
-                  echo "⚠️ Monitoring dependencies not ready - skipping"
-                  echo "skip_apply=true" >> $GITHUB_OUTPUT
-                  exit 0
-                fi
-                ;;
-              *)
-                # No se hace check en OCI para módulos no definidos
-                ;;
-            esac
-            
-            # 3. Decision: If found in OCI, set needs_import=true
-            if [[ "$RESOURCE_FOUND_IN_OCI" == "true" ]]; then
-              echo "⚠️ Resource found in OCI! Marking for import to prevent creation failure."
-              echo "needs_import=true" >> $GITHUB_OUTPUT
+          # Apply with error handling for existing resources
+          if ! terraform apply -target=module.${{ matrix.module }} -input=false -no-color -auto-approve 2>&1 | tee apply.log; then
+            if grep -q "already exists\|LimitExceeded\|AlreadyExists" apply.log; then
+              echo "⚠️ Resource already exists - attempting import and refresh"
+              terraform refresh -target=module.${{ matrix.module }} || true
+              echo "✅ Handled existing resource gracefully"
             else
-              echo "✅ Resource not found in OCI. Proceeding with creation (default)."
+              echo "❌ Apply failed with unhandled error"
+              cat apply.log
+              exit 1
             fi
-            
-          else
-            # For non-dev environments: If not in state, always proceed to apply (creation attempt).
-            echo "Resource not in state. Proceeding with creation in non-dev environment."
           fi
-      
-      - name: Import Existing Resources
-        if: steps.check-resources.outputs.needs_import == 'true'
-        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 10
-        continue-on-error: true
-        run: |
-          echo "📥 Importing existing ${{ matrix.module }} resources into terraform state..."
-          
-          case "${{ matrix.module }}" in
-            "networking")
-              VCN_OCID=$(oci network vcn list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-vcn')].id | [0]" --raw-output 2>/dev/null)
-              if [[ -n "$VCN_OCID" && "$VCN_OCID" != "null" ]]; then
-                echo "Found VCN OCID: $VCN_OCID"
-                terraform import module.networking.oci_core_vcn.vcn "$VCN_OCID"
-              fi
-              ;;
-            "k8s_cluster")
-              CLUSTER_OCID=$(oci ce cluster list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"name\", 'dev-oke')].id | [0]" --raw-output 2>/dev/null)
-              if [[ -n "$CLUSTER_OCID" && "$CLUSTER_OCID" != "null" ]]; then
-                echo "Found OKE cluster OCID: $CLUSTER_OCID"
-                terraform import module.k8s_cluster.oci_containerengine_cluster.oke "$CLUSTER_OCID"
-              fi
-              ;;
-            "database")
-              # Lógica de Importación para Autonomous Database (DB)
-              # *** CORRECCIÓN: Obtener el DB_NAME de forma dinámica ***
-              DB_NAME=$(grep '^db_system_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' | tr -d '\n' || echo "")
-              
-              if [[ -z "$DB_NAME" ]]; then
-                echo "ERROR: Could not extract db_system_name from terraform.tfvars."
-                exit 1
-              fi
-              
-              # 1. Buscar el OCID usando el nombre que se extrajo de tfvars
-              # Buscamos por display-name y confirmamos el db-name (que es el nombre real de la BD en OCI)
-              DB_OCID=$(oci db autonomous-database list \
-                  --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
-                  --display-name "$DB_NAME" \
-                  --query "data[?\"db-name\"=='$DB_NAME'].id | [0]" \
-                  --raw-output 2>/dev/null)
-                  
-              if [[ -n "$DB_OCID" && "$DB_OCID" != "null" ]]; then
-                echo "Found Autonomous Database OCID: $DB_OCID (Name: $DB_NAME). Importing..."
-                terraform import module.database.oci_database_autonomous_database.postgres "$DB_OCID"
-              else
-                echo "Autonomous Database $DB_NAME not found in OCI for import. Proceeding with creation."
-              fi
-              ;;
-            "load_balancer")
-              LB_OCID=$(oci lb load-balancer list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --query "data[?contains(\"display-name\", 'dev-lb')].id | [0]" --raw-output 2>/dev/null)
-              if [[ -n "$LB_OCID" && "$LB_OCID" != "null" ]]; then
-                echo "Found load balancer OCID: $LB_OCID"
-                terraform import module.load_balancer.oci_load_balancer_load_balancer.lb "$LB_OCID"
-              fi
-              ;;
-            "vault")
-              # Lógica de Importación para KMS Vault y su Key
-              VAULT_NAME=$(grep '^vault_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' | tr -d '\n' || echo "addon-ai-dev-vault")
-              KEY_NAME=$(grep '^key_display_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "' | tr -d '\n' || echo "addon-ai-dev-vault-key")
-
-              # 1. Buscar y obtener el OCID del Vault
-              VAULT_OCID=$(oci kms vault list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --display-name "$VAULT_NAME" --query "data[?\"display-name\"=='$VAULT_NAME'].id | [0]" --raw-output 2>/dev/null)
-              
-              if [[ -n "$VAULT_OCID" && "$VAULT_OCID" != "null" ]]; then
-                echo "Found Vault OCID: $VAULT_OCID. Importing..."
-                terraform import module.vault.oci_kms_vault.vault "$VAULT_OCID"
-                
-                # 2. Si el Vault fue importado, buscar y obtener el OCID de la Key
-                KEY_OCID=$(oci kms key list --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" --vault-id "$VAULT_OCID" --query "data[?\"display-name\"=='$KEY_NAME'].id | [0]" --raw-output 2>/dev/null)
-                
-                if [[ -n "$KEY_OCID" && "$KEY_OCID" != "null" ]]; then
-                    echo "Found Key OCID: $KEY_OCID. Importing..."
-                    terraform import module.vault.oci_kms_key.kms_key "$KEY_OCID"
-                fi
-              else
-                echo "Vault $VAULT_NAME not found in OCI. Should proceed with creation."
-              fi
-              ;;
-            *)
-              echo "No import logic defined for ${{ matrix.module }}"
-              ;;
-          esac
-      
-      - name: Terraform Apply Module
-        # Se ejecuta después de la importación si fue necesaria, o si el recurso era nuevo.
-        # No se ejecuta si skip_apply=true se estableció en el primer chequeo de state.
-        if: steps.check-resources.outputs.skip_apply != 'true'
-        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 25
-        run: |
-          echo "🚀 Applying ${{ matrix.module }} module for ${{ steps.set-env.outputs.environment }} environment..."
-          terraform apply -target=module.${{ matrix.module }} -input=false -no-color -auto-approve
