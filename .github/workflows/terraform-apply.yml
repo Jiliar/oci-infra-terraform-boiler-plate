@@ -1,14 +1,16 @@
 name: Terraform Apply
 
 on:
-  push:
+  pull_request:
     branches: [dev, test, staging, main]
+    types: [closed]
     paths:
       - 'environments/**'
       - 'modules/**'
 
 jobs:
   apply:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -25,13 +27,13 @@ jobs:
       - name: Set Environment
         id: set-env
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+          if [[ "${{ github.event.pull_request.base.ref }}" == "dev" ]]; then
             echo "environment=dev" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/test" ]]; then
+          elif [[ "${{ github.event.pull_request.base.ref }}" == "test" ]]; then
             echo "environment=test" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+          elif [[ "${{ github.event.pull_request.base.ref }}" == "staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          elif [[ "${{ github.event.pull_request.base.ref }}" == "main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           fi
       
