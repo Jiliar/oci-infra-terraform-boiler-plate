@@ -8,7 +8,7 @@ on:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: |
       github.event.pull_request.merged == true &&
       (github.event.pull_request.base.ref == 'dev' ||
@@ -27,11 +27,7 @@ jobs:
         with:
           terraform_version: 1.5.0
       
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-      
+
       - name: Set Environment
         id: set-env
         run: |
@@ -151,8 +147,7 @@ jobs:
       
       - name: Terraform Init
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 10
-        continue-on-error: false
+        timeout-minutes: 15
         run: |
           echo "🚀 Initializing Terraform for ${{ steps.set-env.outputs.environment }} environment..."
           terraform init -no-color
@@ -160,81 +155,29 @@ jobs:
       - name: Check Module Resources Exist
         id: check-resources
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 5
+        timeout-minutes: 3
         continue-on-error: true
         run: |
           echo "🔍 Checking if ${{ matrix.module }} resources already exist..."
           
-          # Check based on module type
-          case "${{ matrix.module }}" in
-            "networking")
-              # Check if VCN exists
-              if terraform show -json 2>/dev/null | jq -e '.values.root_module.child_modules[]? | select(.address == "module.networking") | .resources[]? | select(.type == "oci_core_vcn")' >/dev/null 2>&1; then
-                echo "VCN already exists"
-                echo "skip_apply=true" >> $GITHUB_OUTPUT
-              else
-                echo "VCN does not exist"
-                echo "skip_apply=false" >> $GITHUB_OUTPUT
-              fi
-              ;;
-            "k8s_cluster")
-              # Check if OKE cluster exists
-              if terraform show -json 2>/dev/null | jq -e '.values.root_module.child_modules[]? | select(.address == "module.k8s_cluster") | .resources[]? | select(.type == "oci_containerengine_cluster")' >/dev/null 2>&1; then
-                echo "OKE cluster already exists"
-                echo "skip_apply=true" >> $GITHUB_OUTPUT
-              else
-                echo "OKE cluster does not exist"
-                echo "skip_apply=false" >> $GITHUB_OUTPUT
-              fi
-              ;;
-            "database")
-              # Check if database exists
-              if terraform show -json 2>/dev/null | jq -e '.values.root_module.child_modules[]? | select(.address == "module.database") | .resources[]? | select(.type == "oci_database_autonomous_database")' >/dev/null 2>&1; then
-                echo "Database already exists"
-                echo "skip_apply=true" >> $GITHUB_OUTPUT
-              else
-                echo "Database does not exist"
-                echo "skip_apply=false" >> $GITHUB_OUTPUT
-              fi
-              ;;
-            "load_balancer")
-              # Check if load balancer exists
-              if terraform show -json 2>/dev/null | jq -e '.values.root_module.child_modules[]? | select(.address == "module.load_balancer") | .resources[]? | select(.type == "oci_load_balancer_load_balancer")' >/dev/null 2>&1; then
-                echo "Load balancer already exists"
-                echo "skip_apply=true" >> $GITHUB_OUTPUT
-              else
-                echo "Load balancer does not exist"
-                echo "skip_apply=false" >> $GITHUB_OUTPUT
-              fi
-              ;;
-            *)
-              # For other modules, check if any resources exist
-              if terraform show -json 2>/dev/null | jq -e ".values.root_module.child_modules[]? | select(.address == \"module.${{ matrix.module }}\") | .resources[]?" >/dev/null 2>&1; then
-                echo "${{ matrix.module }} resources already exist"
-                echo "skip_apply=true" >> $GITHUB_OUTPUT
-              else
-                echo "${{ matrix.module }} resources do not exist"
-                echo "skip_apply=false" >> $GITHUB_OUTPUT
-              fi
-              ;;
-          esac
+          # Simple check using terraform state list
+          if terraform state list 2>/dev/null | grep -q "module.${{ matrix.module }}"; then
+            echo "✅ ${{ matrix.module }} resources already exist"
+            echo "skip_apply=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ ${{ matrix.module }} resources do not exist"
+            echo "skip_apply=false" >> $GITHUB_OUTPUT
+          fi
       
       - name: Terraform Apply Module
         if: steps.check-resources.outputs.skip_apply != 'true'
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 20
-        continue-on-error: false
+        timeout-minutes: 25
         run: |
-          echo "🚀 Applying ${{ matrix.module }} module..."
-          
-          if [[ "${{ matrix.module }}" == "k8s_cluster" ]]; then
-            # Exclude node pools from k8s_cluster deployment
-            terraform apply -input=false -no-color -target=module.k8s_cluster.oci_containerengine_cluster.oke -auto-approve
-          else
-            terraform apply -input=false -no-color -target=module.${{ matrix.module }} -auto-approve
-          fi
+          echo "🚀 Applying ${{ matrix.module }} module for ${{ steps.set-env.outputs.environment }} environment..."
+          terraform apply -target=module.${{ matrix.module }} -input=false -no-color -auto-approve
       
       - name: Skip Apply (Resources Exist)
         if: steps.check-resources.outputs.skip_apply == 'true'
         run: |
-          echo "⏭️  Skipping ${{ matrix.module }} - resources already exist"
+          echo "⏭️ Skipping ${{ matrix.module }} - resources already exist"
