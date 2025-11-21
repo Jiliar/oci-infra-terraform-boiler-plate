@@ -6,10 +6,10 @@ This guide explains the GitHub Actions workflows for deploying OCI infrastructur
 
 ## 🔄 Workflow Execution Order
 
-### 1️⃣ **Terraform Plan** (First - Validation Phase)
+### 1️⃣ **Terraform Plan** (Validation Phase)
 
 **File:** `.github/workflows/terraform-plan.yml`  
-**Trigger:** Push to branches `[dev, test, staging, main]` with changes to `environments/**` or `modules/**`  
+**Trigger:** Pull Request `[opened, synchronize, reopened]` to branches `[dev, test, staging, main]`  
 **Purpose:** Validate Terraform syntax and preview infrastructure changes  
 **Strategy:** Matrix deployment across 10 modules per environment
 
@@ -28,29 +28,42 @@ This guide explains the GitHub Actions workflows for deploying OCI infrastructur
 **Steps executed:**
 1. Checkout code
 2. Setup Terraform 1.5.0
-3. Set environment based on branch (dev/test/staging/prod)
+3. Set environment based on target branch (`github.event.pull_request.base.ref`)
 4. Configure OCI CLI with API keys
 5. Bootstrap resources check (dev only)
 6. Setup Terraform variables from secrets
 7. `terraform init` - Initialize backend and providers
 8. `terraform plan` - Generate execution plan per module
 
-### 2️⃣ **Terraform Apply** (Second - Deployment Phase)
+### 2️⃣ **Terraform Apply** (Deployment Phase)
 
 **File:** `.github/workflows/terraform-apply.yml`  
-**Trigger:** Push to branches `[dev, test, staging, main]` with changes to `environments/**` or `modules/**`  
-**Purpose:** Deploy infrastructure changes to OCI  
-**Strategy:** Matrix deployment across 10 modules per environment
+**Trigger:** Pull Request `[closed]` with `merged == true` to branches `[dev, test, staging, main]`  
+**Purpose:** Deploy infrastructure changes to OCI after successful validation  
+**Strategy:** Two-stage workflow with plan validation followed by deployment
+
+**Job Dependencies:**
+1. **Plan Job** (validation) → **Apply Job** (deployment)
+2. Apply only runs if Plan succeeds
 
 **Steps executed:**
-1. Checkout code
-2. Setup Terraform 1.5.0
-3. Set environment based on branch (dev/test/staging/prod)
-4. Configure OCI CLI with API keys
-5. Bootstrap resources check (dev only)
-6. Setup Terraform variables from secrets
-7. `terraform init` - Initialize backend and providers
-8. `terraform apply -auto-approve` - Deploy infrastructure per module
+1. **Plan Job:**
+   - Checkout code
+   - Setup Terraform 1.5.0
+   - Set environment based on target branch
+   - Configure OCI CLI with API keys
+   - Setup Terraform variables from secrets
+   - `terraform init` - Initialize backend and providers
+   - `terraform plan` - Validate execution plan per module
+2. **Apply Job** (runs only if Plan succeeds):
+   - Checkout code
+   - Setup Terraform 1.5.0
+   - Set environment based on target branch
+   - Configure OCI CLI with API keys
+   - Bootstrap resources check (dev only)
+   - Setup Terraform variables from secrets
+   - `terraform init` - Initialize backend and providers
+   - `terraform apply -auto-approve` - Deploy infrastructure per module
 
 ## 🚀 Complete Deployment Flow
 
@@ -290,10 +303,112 @@ git push origin main
 
 ### How to Add Secrets to GitHub Repository
 
-1. Navigate to your GitHub repository
-2. Go to **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret**
-4. Add each secret with exact name and value
+#### Step 1: Navigate to Repository Settings
+1. Go to your GitHub repository
+2. Click **Settings** (top tab)
+3. Click **Secrets and variables** → **Actions** (left menu)
+4. Click **New repository secret**
+
+#### Step 2: Create Each Secret Individually
+
+**Format for each secret:**
+```
+Name: [EXACT_SECRET_NAME]
+Value: [VALUE_WITHOUT_QUOTES]
+```
+
+**Required Secrets to Create:**
+
+**Secret 1:**
+```
+Name: OCI_USER_OCID
+Value: ocid1.user.oc1..aaaaaaaa...
+```
+
+**Secret 2:**
+```
+Name: OCI_TENANCY_OCID
+Value: ocid1.tenancy.oc1..aaaaaaaa...
+```
+
+**Secret 3:**
+```
+Name: OCI_FINGERPRINT
+Value: aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99
+```
+
+**Secret 4:**
+```
+Name: OCI_PRIVATE_KEY
+Value: -----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+-----END RSA PRIVATE KEY-----
+```
+
+**Secret 5:**
+```
+Name: OCI_REGION
+Value: us-ashburn-1
+```
+
+**Secret 6:**
+```
+Name: OCI_COMPARTMENT_ID
+Value: ocid1.compartment.oc1..aaaaaaaa...
+```
+
+**Secret 7:**
+```
+Name: OCI_AVAILABILITY_DOMAIN
+Value: AD-1
+```
+
+**Secret 8:**
+```
+Name: DB_ADMIN_PASSWORD
+Value: SecureP@ssw0rd123!
+```
+
+#### Step 3: Get OCI Values
+
+**Get OCIDs using OCI CLI:**
+```bash
+# Get User OCID
+oci iam user list --query 'data[0].id' --raw-output
+
+# Get Tenancy OCID
+oci iam tenancy get --tenancy-id $(oci iam user list --query 'data[0]."compartment-id"' --raw-output) --query 'data.id' --raw-output
+
+# Get Compartment OCID
+oci iam compartment list --query 'data[0].id' --raw-output
+
+# Get Availability Domain
+oci iam availability-domain list --compartment-id $TENANCY_OCID --query 'data[0].name' --raw-output
+```
+
+**Create API Key Pair:**
+```bash
+# Generate API key pair
+mkdir -p ~/.oci
+openssl genrsa -out ~/.oci/oci_api_key.pem 2048
+openssl rsa -pubout -in ~/.oci/oci_api_key.pem -out ~/.oci/oci_api_key_public.pem
+
+# Display public key (upload to OCI Console)
+cat ~/.oci/oci_api_key_public.pem
+
+# Display private key (copy to GitHub Secret OCI_PRIVATE_KEY)
+cat ~/.oci/oci_api_key.pem
+```
+
+**Upload Public Key to OCI:**
+1. Go to OCI Console → User Settings
+2. Click **API Keys**
+3. Click **Add API Key**
+4. Paste public key content
+5. Note the fingerprint (use for OCI_FINGERPRINT secret)
+
+#### Step 4: Verify Secrets
+After creating all secrets, verify they appear in the repository secrets list with correct names.
 
 ### Secret Validation Commands
 
