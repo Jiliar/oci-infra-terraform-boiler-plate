@@ -1,9 +1,6 @@
 name: Terraform Apply
 
 on:
-  workflow_run:
-    workflows: ["Terraform Plan"]
-    types: [completed]
   pull_request:
     branches: [dev, test, staging, main]
     types: [closed]
@@ -11,8 +8,7 @@ on:
 jobs:
   apply:
     if: |
-      ((github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')) &&
+      github.event.pull_request.merged == true &&
       (github.event.pull_request.base.ref == 'dev' ||
        github.event.pull_request.base.ref == 'test' ||
        github.event.pull_request.base.ref == 'staging' ||
