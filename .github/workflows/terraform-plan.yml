@@ -86,22 +86,34 @@ jobs:
       - name: Replace Tokens with Secrets
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         run: |
-          # Replace tokens with actual secret values
-          sed -i 's/__TENANCY_OCID__/${{ secrets.OCI_TENANCY_OCID }}/g' terraform.tfvars
-          sed -i 's/__USER_OCID__/${{ secrets.OCI_USER_OCID }}/g' terraform.tfvars
-          sed -i 's/__FINGERPRINT__/${{ secrets.OCI_FINGERPRINT }}/g' terraform.tfvars
-          sed -i 's/__COMPARTMENT_ID__/${{ secrets.OCI_COMPARTMENT_ID }}/g' terraform.tfvars
-          sed -i 's/__DB_ADMIN_PASSWORD__/${{ secrets.DB_ADMIN_PASSWORD }}/g' terraform.tfvars
+          # Replace simple tokens with actual secret values
+          sed -i 's|__TENANCY_OCID__|${{ secrets.OCI_TENANCY_OCID }}|g' terraform.tfvars
+          sed -i 's|__USER_OCID__|${{ secrets.OCI_USER_OCID }}|g' terraform.tfvars
+          sed -i 's|__FINGERPRINT__|${{ secrets.OCI_FINGERPRINT }}|g' terraform.tfvars
+          sed -i 's|__COMPARTMENT_ID__|${{ secrets.OCI_COMPARTMENT_ID }}|g' terraform.tfvars
+          sed -i 's|__DB_ADMIN_PASSWORD__|${{ secrets.DB_ADMIN_PASSWORD }}|g' terraform.tfvars
           
-          # Replace private key token with multiline secret
-          cat > temp_private_key.txt << 'EOK'
+          # Replace private key token with heredoc format
+          cat > terraform.tfvars.tmp << 'EOF'
           ${{ secrets.OCI_PRIVATE_KEY }}
-          EOK
+          EOF
           
-          # Replace __PRIVATE_KEY__ token with actual private key
-          sed -i '/__PRIVATE_KEY__/r temp_private_key.txt' terraform.tfvars
-          sed -i '/__PRIVATE_KEY__/d' terraform.tfvars
-          rm temp_private_key.txt
+          # Replace __PRIVATE_KEY__ with the actual key content
+          awk '
+          /__PRIVATE_KEY__/ {
+            print "private_key = <<EOK"
+            while ((getline line < "terraform.tfvars.tmp") > 0) {
+              print line
+            }
+            print "EOK"
+            close("terraform.tfvars.tmp")
+            next
+          }
+          { print }
+          ' terraform.tfvars > terraform.tfvars.new
+          
+          mv terraform.tfvars.new terraform.tfvars
+          rm -f terraform.tfvars.tmp
       
       - name: Terraform Init
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
