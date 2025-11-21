@@ -7,13 +7,14 @@ on:
 
 jobs:
   apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: |
       github.event.pull_request.merged == true &&
       (github.event.pull_request.base.ref == 'dev' ||
        github.event.pull_request.base.ref == 'test' ||
        github.event.pull_request.base.ref == 'staging' ||
        github.event.pull_request.base.ref == 'main')
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         # NOTE: k8s_cluster deploys cluster only, node pools excluded from pipeline
@@ -38,9 +39,15 @@ jobs:
           elif [[ "${{ github.event.pull_request.base.ref }}" == "main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           fi
-      
-      - name: Configure OCI CLI
+
+      - name: Install and Configure OCI CLI
+        if: steps.set-env.outputs.environment == 'dev'
+        timeout-minutes: 5
         run: |
+          # Install OCI CLI using pip (faster than script)
+          pip3 install oci-cli
+          
+          # Configure OCI CLI
           mkdir -p ~/.oci
           cat > ~/.oci/config << EOF
           [DEFAULT]
@@ -56,6 +63,7 @@ jobs:
       
       - name: Bootstrap Resources Check (Dev Only)
         if: steps.set-env.outputs.environment == 'dev'
+        timeout-minutes: 30
         run: |
           echo "🔍 Checking bootstrap resources for dev environment..."
           
@@ -109,16 +117,20 @@ jobs:
       
       - name: Terraform Init
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        timeout-minutes: 10
+        continue-on-error: false
         run: |
           echo "🚀 Initializing Terraform for ${{ steps.set-env.outputs.environment }} environment..."
-          terraform init
+          terraform init -no-color
       
       - name: Terraform Apply Module
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        timeout-minutes: 20
+        continue-on-error: false
         run: |
           if [[ "${{ matrix.module }}" == "k8s_cluster" ]]; then
             # Exclude node pools from k8s_cluster deployment
-            terraform apply -input=false -target=module.k8s_cluster.oci_containerengine_cluster.oke -auto-approve
+            terraform apply -input=false -no-color -target=module.k8s_cluster.oci_containerengine_cluster.oke -auto-approve
           else
-            terraform apply -input=false -target=module.${{ matrix.module }} -auto-approve
+            terraform apply -input=false -no-color -target=module.${{ matrix.module }} -auto-approve
           fi
