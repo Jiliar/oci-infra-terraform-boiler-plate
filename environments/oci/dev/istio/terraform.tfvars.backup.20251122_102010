@@ -34,8 +34,8 @@ XXytwZg8FJspi0sT69QuPg==
 EOF
 region         = "sa-bogota-1"
 
-# Cluster ID from main infrastructure
-cluster_id = "ocid1.cluster.oc1.sa-bogota-1.aaaaaaaayzacl6pbhbd7ymujuhdxxw44ywuqnjjklfs6ez4nmcmscnow7i4a"
+# Cluster ID from main infrastructure - UPDATE THIS WITH CURRENT CLUSTER ID
+cluster_id = "REPLACE_WITH_CURRENT_CLUSTER_OCID"
 
 # Istio Configuration
 istio_version                    = "1.20.0"

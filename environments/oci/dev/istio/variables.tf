@@ -100,3 +100,15 @@ variable "tls_secret_name" {
   type        = string
   default     = "dev-addon-ai-tls"
 }
+
+variable "istiod_values" {
+  description = "Helm values for Istiod"
+  type        = string
+  default     = ""
+}
+
+variable "ingress_values" {
+  description = "Helm values for Istio Ingress Gateway"
+  type        = string
+  default     = ""
+}

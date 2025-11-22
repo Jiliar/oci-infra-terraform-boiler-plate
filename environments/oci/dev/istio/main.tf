@@ -54,6 +54,8 @@ module "istio" {
   source = "../../../../modules/oci/istio"
 
   istio_version                    = var.istio_version
+  istiod_values                    = var.istiod_values
+  ingress_values                   = var.ingress_values
   enable_gateway                   = var.enable_gateway
   gateway_name                     = var.gateway_name
   gateway_namespace                = var.gateway_namespace
@@ -66,4 +68,7 @@ module "istio" {
   virtualservice_destination_port  = var.virtualservice_destination_port
   enable_peer_authentication       = var.enable_peer_authentication
   mtls_mode                        = var.mtls_mode
+  enable_tls                       = var.enable_tls
+  enable_https_redirect            = var.enable_https_redirect
+  tls_secret_name                  = var.tls_secret_name
 }
