@@ -16,7 +16,7 @@ locals {
 }
 
 resource "oci_logging_log" "lb_access_log" {
-  count        = var.lb_id != "" ? 1 : 0
+  count        = try(var.lb_id != "" && var.lb_id != null, false) ? 1 : 0
   display_name = "lb-access-log"
   log_group_id = local.log_group_id
   log_type     = "SERVICE"
@@ -36,7 +36,7 @@ resource "oci_logging_log" "lb_access_log" {
 }
 
 resource "oci_logging_log" "waf_log" {
-  count        = var.waf_policy_id != "" ? 1 : 0
+  count        = try(var.waf_policy_id != "" && var.waf_policy_id != null, false) ? 1 : 0
   display_name = "waf-security-log"
   log_group_id = local.log_group_id
   log_type     = "SERVICE"
@@ -56,7 +56,7 @@ resource "oci_logging_log" "waf_log" {
 }
 
 resource "oci_logging_log" "db_log" {
-  count        = var.db_id != "" ? 1 : 0
+  count        = try(var.db_id != "" && var.db_id != null, false) ? 1 : 0
   display_name = "db-slow-query-log"
   log_group_id = local.log_group_id
   log_type     = "SERVICE"
