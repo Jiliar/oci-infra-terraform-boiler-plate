@@ -16,7 +16,7 @@ subnets = {
     name      = "addon-ai-dev-control-plane"
     cidr      = "10.0.1.0/24"
     dns_label = "controlplane"
-    private   = true
+    private   = false
   }
   "nodes" = {
     name      = "addon-ai-dev-nodes"
