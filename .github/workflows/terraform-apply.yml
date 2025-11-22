@@ -168,7 +168,7 @@ jobs:
           
           # Apply with error handling for existing resources
           if ! terraform apply -target=module.${{ matrix.module }} -input=false -no-color -auto-approve 2>&1 | tee apply.log; then
-            if grep -q "already exists\|LimitExceeded\|AlreadyExists\|PolicyAlreadyExists\|database named.*already exists\|Limit.*has been already reached" apply.log; then
+            if grep -q "already exists\|LimitExceeded\|AlreadyExists\|PolicyAlreadyExists\|database named.*already exists\|Limit.*has been already reached\|Work Request error\|work request did not succeed" apply.log; then
               echo "⚠️ Resource creation failed - handling gracefully"
               
               # Handle specific module failures
