@@ -140,14 +140,17 @@ module "waf" {
 }
 
 module "monitoring" {
-  source            = "../../../modules/oci/monitoring"
-  compartment_id    = var.compartment_id
-  namespace         = var.monitoring_namespace
-  alarm_enabled     = var.monitoring_alarm_enabled
-  lb_id             = module.load_balancer.load_balancer_id
-  waf_policy_id     = module.waf.waf_policy_id
-  db_id             = module.database.database_id
-  alarm_destinations = []
+  source              = "../../../modules/oci/monitoring"
+  compartment_id      = var.compartment_id
+  namespace           = var.monitoring_namespace
+  alarm_enabled       = var.monitoring_alarm_enabled
+  lb_id               = module.load_balancer.load_balancer_id
+  waf_policy_id       = module.waf.waf_policy_id
+  db_id               = module.database.database_id
+  enable_lb_logging   = true
+  enable_waf_logging  = false
+  enable_db_logging   = true
+  alarm_destinations  = []
 }
 
 # Istio Service Mesh se despliega por separado

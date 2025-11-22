@@ -35,3 +35,18 @@ variable "alarm_destinations" {
   type    = list(string)
   default = null
 }
+
+variable "enable_lb_logging" {
+  type    = bool
+  default = false
+}
+
+variable "enable_waf_logging" {
+  type    = bool
+  default = false
+}
+
+variable "enable_db_logging" {
+  type    = bool
+  default = false
+}
