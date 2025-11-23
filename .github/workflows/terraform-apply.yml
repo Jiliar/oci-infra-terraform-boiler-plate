@@ -25,7 +25,8 @@ jobs:
             modules: '["iam", "vault", "ocir"]'
           # Fase 2 - Red y Seguridad
           - phase: 2
-            modules: '["networking", "waf"]'
+            #modules: '["networking", "waf"]'
+            modules: '["waf"]'
           # Fase 3 - Infraestructura Core
           - phase: 3
             modules: '["database", "k8s_cluster"]'
