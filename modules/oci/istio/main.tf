@@ -8,6 +8,10 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.11"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.9"
+    }
   }
 }
 
@@ -26,6 +30,18 @@ resource "helm_release" "istiod" {
   chart      = "istiod"
   namespace  = "istio-system"
   version    = var.istio_version
+  timeout    = 600
+  
+  set {
+    name  = "pilot.resources.requests.memory"
+    value = "128Mi"
+  }
+  
+  set {
+    name  = "pilot.resources.requests.cpu"
+    value = "100m"
+  }
+  
   values     = var.istiod_values != "" ? [var.istiod_values] : []
   depends_on = [helm_release.istio_base]
 }
@@ -36,6 +52,8 @@ resource "helm_release" "istio_ingress" {
   chart      = "gateway"
   namespace  = "istio-system"
   version    = var.istio_version
+  timeout    = 600  # 10 minutos
+  wait       = false  # No esperar LoadBalancer IP
   
   set {
     name  = "service.type"
@@ -44,6 +62,27 @@ resource "helm_release" "istio_ingress" {
   
   values     = var.ingress_values != "" ? [var.ingress_values] : []
   depends_on = [helm_release.istiod]
+}
+
+# Verificar que los CRDs de Istio estén disponibles
+resource "null_resource" "wait_for_istio_crds" {
+  depends_on = [helm_release.istiod]
+  
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "Esperando CRDs de Istio..."
+      for i in {1..30}; do
+        if kubectl get crd gateways.networking.istio.io peerauthentications.security.istio.io virtualservices.networking.istio.io >/dev/null 2>&1; then
+          echo "CRDs de Istio disponibles"
+          exit 0
+        fi
+        echo "Intento $i/30: CRDs no disponibles, esperando..."
+        sleep 10
+      done
+      echo "Error: CRDs de Istio no disponibles después de 5 minutos"
+      exit 1
+    EOT
+  }
 }
 
 resource "kubernetes_manifest" "istio_gateway" {
@@ -92,11 +131,11 @@ resource "kubernetes_manifest" "istio_gateway" {
     }
   }
   
-  depends_on = [helm_release.istio_ingress]
+  depends_on = [helm_release.istio_ingress, null_resource.wait_for_istio_crds]
 }
 
 resource "kubernetes_manifest" "istio_virtualservice" {
-  count = var.enable_virtualservice ? 1 : 0
+  count = var.enable_gateway ? 1 : 0
   
   manifest = {
     apiVersion = "networking.istio.io/v1beta1"
@@ -125,11 +164,11 @@ resource "kubernetes_manifest" "istio_virtualservice" {
     }
   }
   
-  depends_on = [kubernetes_manifest.istio_gateway]
+  depends_on = [kubernetes_manifest.istio_gateway, null_resource.wait_for_istio_crds]
 }
 
 resource "kubernetes_manifest" "peer_authentication" {
-  count = var.enable_peer_authentication ? 1 : 0
+  count = var.enable_gateway ? 1 : 0
   
   manifest = {
     apiVersion = "security.istio.io/v1beta1"
@@ -145,5 +184,5 @@ resource "kubernetes_manifest" "peer_authentication" {
     }
   }
   
-  depends_on = [helm_release.istiod]
+  depends_on = [helm_release.istiod, null_resource.wait_for_istio_crds]
 }

@@ -56,7 +56,7 @@ validate_modules() {
             echo -e "  ✅ ${GREEN}$module${NC}"
         else
             echo -e "  ❌ ${RED}$module${NC}"
-            ((ERRORS++)
+            ((ERRORS++))
         fi
     done
     
