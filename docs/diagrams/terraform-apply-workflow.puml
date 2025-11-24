@@ -1,4 +1,5 @@
-@startuml terraform-apply-workflow
+@startuml
+
 !theme plain
 skinparam backgroundColor white
 skinparam activity {
@@ -34,6 +35,7 @@ note right
 end note
 
 if (¿PR merged y rama válida?) then (sí)
+
   :Inicializar Estrategia Secuencial;
   note right
     max-parallel: 1
@@ -42,16 +44,18 @@ if (¿PR merged y rama válida?) then (sí)
     Fase 1: Fundamentos (iam, vault, ocir)
     Fase 2: Red y Seguridad (networking, waf)
     Fase 3: Infraestructura Core (database, k8s_cluster)
-    Fase 4: Servicios de Red (load_balancer, dns)
+    Fase 4: Servicios de Red (load_l4, dns)
     Fase 5: Monitoreo (monitoring)
   end note
   
   fork
     :Checkout Código;
-    note right: actions/checkout@v4
+    note right
+      actions/checkout@v4
+    end note
   fork again
     :Setup Terraform;
-    note right: 
+    note right
       Versión: 1.5.0
       hashicorp/setup-terraform@v3
     end note
@@ -66,6 +70,7 @@ if (¿PR merged y rama válida?) then (sí)
   end note
   
   if (¿Ambiente es DEV?) then (sí)
+  
     :Instalar OCI CLI;
     note right
       pip3 install oci-cli
@@ -94,13 +99,15 @@ if (¿PR merged y rama válida?) then (sí)
         - Timeout: 5 min
         - continue-on-error: true
       end note
-    else (sí)
+    else
       :Bucket ya existe;
     endif
     
-  else (no)
+  else
     :Saltar configuración OCI;
-    note right: Solo DEV ejecuta bootstrap
+    note right
+      Solo DEV ejecuta bootstrap
+    end note
   endif
   
   :Reemplazar Tokens con Secrets;
@@ -130,11 +137,10 @@ if (¿PR merged y rama válida?) then (sí)
   note right
     Timeout: 35 min
     continue-on-error: true
-    
     Para cada módulo:
     1. Verificar si existe en state
-    2. Aplicar terraform apply
-    3. Manejar errores gracefully
+    2. terraform apply
+    3. Manejo de errores
   end note
   
   repeat
@@ -142,26 +148,25 @@ if (¿PR merged y rama válida?) then (sí)
     
     if (¿Módulo existe en state?) then (sí)
       :Saltar módulo;
-      note right: Ya existe - skipping
-    else (no)
+      note right
+        Ya existe - skipping
+      end note
+    else
       :Aplicar Terraform;
-      
       if (¿Apply exitoso?) then (sí)
-        :Módulo aplicado exitosamente;
-      else (no)
+        :Módulo aplicado;
+      else
         if (¿Error conocido?) then (sí)
-          :Manejar Error Gracefully;
+          :Manejar Error;
           note right
-            Errores manejados:
+            Errores:
             - already exists
             - LimitExceeded
-            - AlreadyExists
             - PolicyAlreadyExists
-            - database named already exists
-            - Limit has been reached
+            - database exists
             - Work Request error
           end note
-        else (no)
+        else
           :Error no manejado - Fallar;
           stop
         endif
@@ -174,31 +179,31 @@ if (¿PR merged y rama válida?) then (sí)
   if (¿Ambiente es DEV?) then (sí)
     :Subir Estado a Bucket;
     note right
-      - terraform state pull
-      - Crear backup con timestamp
-      - Subir a Object Storage
-      - Timeout: 5 min
+      terraform state pull
+      Crear backup
+      Subir a Object Storage
     end note
-  else (no)
-    :Saltar backup de estado;
+  else
+    :Saltar backup;
   endif
   
   if (¿Es Fase 5?) then (sí)
     :Apply Final Completo;
     note right
-      Aplicar todo para capturar
-      dependencias faltantes
+      Aplicar todo
       Timeout: 20 min
     end note
-  else (no)
-    :Continuar a siguiente fase;
+  else
+    :Siguiente fase;
   endif
   
   :Fase Completada;
   
-else (no)
+else
   :Saltar ejecución;
-  note right: Condiciones no cumplidas
+  note right
+    Condiciones no cumplidas
+  end note
   stop
 endif
 
@@ -206,25 +211,21 @@ endif
 note right
   Job: validate-state
   Ejecuta después de apply
-  Condición: always()
 end note
 
 fork
   :Setup Validación;
   note right
-    - Checkout código
-    - Setup Terraform
-    - Determinar ambiente
+    checkout + setup terraform
   end note
 fork again
   :Reemplazar Tokens;
   note right
-    Crear terraform.tfvars
-    con todos los secrets
+    crear terraform.tfvars
   end note
 end fork
 
-:Configurar Autenticación Backend;
+:Configurar Backend;
 note right
   TF_HTTP_USERNAME
   TF_HTTP_PASSWORD
@@ -234,16 +235,17 @@ end note
 
 :Validar Estado;
 note right
-  - terraform validate
-  - terraform state list
-  - Verificar integridad
+  terraform validate
+  terraform state list
 end note
 
 if (¿Validación exitosa?) then (sí)
   :Estado válido;
-else (no)
+else
   :Advertencia - Sin estado;
-  note right: Normal para primer despliegue
+  note right
+    Normal primer despliegue
+  end note
 endif
 
 stop
