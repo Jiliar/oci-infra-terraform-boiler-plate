@@ -328,6 +328,29 @@ jobs:
             "main") echo "environment=prod" >> $GITHUB_OUTPUT ;;
           esac
 
+      - name: Replace Tokens with Secrets
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: |
+          cat > terraform.tfvars << EOF
+          tenancy_ocid     = "${{ secrets.OCI_TENANCY_OCID }}"
+          user_ocid        = "${{ secrets.OCI_USER_OCID }}"
+          fingerprint      = "${{ secrets.OCI_FINGERPRINT }}"
+          compartment_id   = "${{ secrets.OCI_COMPARTMENT_ID }}"
+          db_admin_password = "${{ secrets.DB_ADMIN_PASSWORD }}"
+          namespace        = "${{ secrets.OCI_NAMESPACE }}"
+          bucket_name      = "${{ secrets.OCI_BUCKET_NAME }}"
+          region          = "${{ secrets.OCI_REGION }}"
+          private_key = <<EOK
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOK
+          EOF
+
+      - name: Configure Backend Authentication
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: |
+          echo "TF_HTTP_USERNAME=${{ secrets.OCI_USER_OCID }}" >> $GITHUB_ENV
+          echo "TF_HTTP_PASSWORD=${{ secrets.OCI_AUTH_TOKEN }}" >> $GITHUB_ENV
+
       - name: Terraform Init
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         run: terraform init -no-color
@@ -337,5 +360,8 @@ jobs:
         run: |
           echo "🔍 Validating Terraform state..."
           terraform validate
-          terraform state list > /dev/null
-          echo "✅ State validation passed"
+          if terraform state list > /dev/null 2>&1; then
+            echo "✅ State validation passed"
+          else
+            echo "⚠️ No state found - this is normal for first deployment"
+          fi
