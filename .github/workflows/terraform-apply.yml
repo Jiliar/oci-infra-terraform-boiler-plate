@@ -232,42 +232,63 @@ jobs:
           echo "🎉 Phase $PHASE completed successfully"
 
       - name: Upload State to Bucket
-        if: steps.set-env.outputs.environment == 'dev'
+        if: steps.set-env.outputs.environment == 'dev' # Ajusta si necesitas para otros entornos
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         timeout-minutes: 5
         continue-on-error: true
         run: |
-          echo "📤 Uploading tfstate to bucket..."
+          echo "📤 Uploading tfstate backup to bucket..."
           
-          # Download current state
-          if terraform state pull > current.tfstate 2>/dev/null; then
+          # 1. Asegurar que OCI CLI esté instalado/configurado (Si no se hizo en un paso anterior global)
+          # Esto es crucial si la subida ocurre en entornos diferentes a 'dev'
+          # pip3 install oci-cli
+          # mkdir -p ~/.oci
+          # cat > ~/.oci/config << EOF
+          # [DEFAULT]
+          # user=${{ secrets.OCI_USER_OCID }}
+          # ... (configuraciones) ...
+          # EOF
+          # echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          # chmod 600 ~/.oci/oci_api_key.pem
+          # chmod 600 ~/.oci/config
+          
+          # 2. Descargar el estado (del backend remoto)
+          STATE_FILE="current.tfstate"
+          if terraform state pull > "$STATE_FILE" 2>/dev/null; then
             echo "✅ State downloaded successfully"
             
-            # Check if state file has content
-            if [ -s "current.tfstate" ]; then
-              echo "✅ State file has content ($(wc -c < current.tfstate) bytes)"
+            # 3. Verificar contenido
+            if [ -s "$STATE_FILE" ]; then
+              echo "✅ State file has content ($(wc -c < "$STATE_FILE") bytes)"
               
-              # Upload to bucket with timestamp
+              # 4. Preparar nombre y subir
               TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              # Usamos el nombre base para que los backups se agrupen y el estado maestro para que se use para el drift
+              # Si necesitas un nombre FIJO para el estado maestro:
+              # STATE_NAME="terraform.tfstate" 
+              # Si necesitas un backup (como lo tienes):
               STATE_NAME="${{ steps.set-env.outputs.environment }}_phase${{ matrix.phase }}_${TIMESTAMP}.tfstate"
               
+              # Subir archivo al bucket
               if oci os object put \
                 --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" \
                 --namespace "${{ secrets.OCI_NAMESPACE }}" \
                 --name "$STATE_NAME" \
-                --file "current.tfstate" 2>/dev/null; then
+                --file "$STATE_FILE"; then # Eliminé 2>/dev/null para ver el error si falla
                 echo "✅ State uploaded as $STATE_NAME"
                 echo "🔗 URL: https://objectstorage.${{ secrets.OCI_REGION }}.oraclecloud.com/n/${{ secrets.OCI_NAMESPACE }}/b/${{ secrets.OCI_BUCKET_NAME }}/o/$STATE_NAME"
               else
-                echo "⚠️ Failed to upload state - continuing..."
+                echo "❌ Error al subir estado $STATE_FILE"
+                exit 1 # Detener si la subida falla, ya que la intención es persistir el estado.
               fi
             else
               echo "⚠️ State file is empty - skipping upload"
             fi
             
-            rm -f current.tfstate
+            rm -f "$STATE_FILE"
           else
-            echo "⚠️ Could not download state - continuing..."
+            echo "❌ Could not download state - ensure terraform init was successful and state exists."
+            exit 1 # Detener si el pull falla
           fi
 
       - name: Final Full Apply (Phase 6)
