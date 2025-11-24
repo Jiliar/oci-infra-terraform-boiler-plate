@@ -1,0 +1,157 @@
+@startuml
+
+!theme plain
+skinparam backgroundColor white
+skinparam activity {
+  BackgroundColor lightblue
+  BorderColor black
+  FontSize 10
+}
+skinparam decision {
+  BackgroundColor lightyellow
+  BorderColor black
+}
+skinparam note {
+  BackgroundColor lightgreen
+  BorderColor black
+}
+
+title Diagrama de Actividades - terraform-plan.yml (Actualizado)
+
+start
+
+:Pull Request Trigger;
+note right
+  Ramas: dev, test, staging, main
+  Tipos: opened, synchronize, reopened
+end note
+
+:Validar Condiciones del Job;
+note right
+  - Runner: ubuntu-latest
+  - Timeout: 30 minutos
+  - Verificar rama objetivo válida
+end note
+
+if (¿Rama objetivo válida?) then (sí)
+
+  :Inicializar Matriz de Estrategia;
+  note right
+    Módulos paralelos:
+    - networking
+    - k8s_cluster  
+    - database
+    - ocir
+    - load_balancer
+    - dns
+    - vault
+    - iam
+    - waf
+    - monitoring
+  end note
+  
+  fork
+    :Checkout Código;
+    note right
+      actions/checkout@v4
+    end note
+  fork again
+    :Setup Terraform;
+    note right
+      Versión: 1.5.0
+      hashicorp/setup-terraform@v3
+    end note
+  end fork
+  
+  :Determinar Ambiente;
+  note right
+    dev → environment=dev
+    test → environment=test
+    staging → environment=staging
+    main → environment=prod
+  end note
+  
+  :Instalar OCI CLI;
+  note right
+    pip3 install oci-cli
+    Timeout: 5 min
+    Para todos los ambientes
+  end note
+  
+  :Configurar OCI CLI;
+  note right
+    - Crear ~/.oci/config
+    - Escribir clave privada
+    - Permisos 600
+  end note
+  
+  :Verificar Bucket Estado;
+  note right
+    oci os bucket get
+    Bucket: terraform-state-{environment}
+    Timeout: 10 min
+    Bucket específico por ambiente
+  end note
+  
+  if (¿Bucket existe?) then (no)
+    :Crear Bucket Bootstrap;
+    note right
+      - Acceso público ObjectRead
+      - Versionado habilitado
+      - Timeout: 5 min
+      - continue-on-error: true
+      - Bucket por ambiente
+    end note
+  else (sí)
+    :Bucket ya existe;
+  endif
+  
+  :Reemplazar Tokens con Secrets;
+  note right
+    - __TENANCY_OCID__
+    - __USER_OCID__
+    - __FINGERPRINT__
+    - __COMPARTMENT_ID__
+    - __DB_ADMIN_PASSWORD__
+    - __PRIVATE_KEY__ (heredoc)
+  end note
+  
+  :Terraform Init;
+  note right
+    Directorio: environments/oci/{environment}
+    Timeout: 10 min
+    Backend remoto
+  end note
+  
+  if (¿Módulo es k8s_cluster?) then (sí)
+    :Terraform Plan - Solo Cluster;
+    note right
+      Target: module.k8s_cluster.oci_containerengine_cluster.oke
+      Excluye node pools
+      Timeout: 15 min
+    end note
+  else
+    :Terraform Plan - Módulo Completo;
+    note right
+      Target: module.{matrix.module}
+      Timeout: 15 min
+      continue-on-error: true
+    end note
+  endif
+  
+  :Mostrar Resultados Plan;
+  note right
+    - Salida sin color
+    - Input: false
+  end note
+  
+else
+  :Saltar ejecución;
+  note right
+    Condiciones no cumplidas
+  end note
+endif
+
+stop
+
+@enduml

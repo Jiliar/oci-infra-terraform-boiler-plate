@@ -74,7 +74,7 @@ jobs:
           esac
 
       - name: Install and Configure OCI CLI
-        if: steps.set-env.outputs.environment == 'dev'
+        if: matrix.phase == 1
         timeout-minutes: 5
         env:
           SUPPRESS_LABEL_WARNING: true
@@ -93,8 +93,8 @@ jobs:
           chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
 
-      - name: Bootstrap Resources Check (Dev Only)
-        if: steps.set-env.outputs.environment == 'dev'
+      - name: Bootstrap Resources Check
+        if: matrix.phase == 1
         id: bootstrap-check
         timeout-minutes: 10
         continue-on-error: false
@@ -113,7 +113,7 @@ jobs:
           fi
 
       - name: Create Bootstrap Bucket (If Needed)
-        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
+        if: matrix.phase == 1 && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
         timeout-minutes: 5
         continue-on-error: true
         env:
