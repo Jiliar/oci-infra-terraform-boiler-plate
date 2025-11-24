@@ -83,15 +83,16 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         run: |
-          echo "🚀 Creating terraform-state bucket..."
+          echo "🚀 Creating public terraform-state bucket..."
           
-          # Create bucket using OCI CLI (ignore if already exists)
+          # Create public bucket using OCI CLI
           if oci os bucket create \
             --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
             --name "${{ secrets.OCI_BUCKET_NAME }}" \
             --namespace "${{ secrets.OCI_NAMESPACE }}" \
+            --public-access-type ObjectReadWrite \
             --versioning Enabled 2>/dev/null; then
-            echo "✅ Bucket ${{ secrets.OCI_BUCKET_NAME }} created successfully"
+            echo "✅ Public bucket ${{ secrets.OCI_BUCKET_NAME }} created successfully"
           else
             echo "⚠️ Bucket may already exist or creation failed - continuing..."
           fi
