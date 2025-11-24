@@ -7,6 +7,7 @@ on:
 
 jobs:
   apply:
+    name: "${{ matrix.phase_name }} (Fase ${{ matrix.phase }})"
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: |
@@ -17,29 +18,30 @@ jobs:
        github.event.pull_request.base.ref == 'main')
     
     strategy:
+      max-parallel: 1
       matrix:
         phase: [1, 2, 3, 4, 5]
         include:
           # Fase 1 - Fundamentos
           - phase: 1
-            #modules: '["iam", "vault", "ocir"]'
-            modules: '[]'
+            phase_name: "Fundamentos"
+            modules: '["iam", "vault", "ocir"]'
           # Fase 2 - Red y Seguridad
           - phase: 2
-            #modules: '["networking", "waf"]'
-            modules: '["waf"]'
+            phase_name: "Red y Seguridad"
+            modules: '["networking", "waf"]'
           # Fase 3 - Infraestructura Core
           - phase: 3
-            #modules: '["database", "k8s_cluster"]'
-            modules: '[]'
+            phase_name: "Infraestructura Core"
+            modules: '["database", "k8s_cluster"]'
           # Fase 4 - Servicios de Red
           - phase: 4
-            #modules: '["load_balancer", "dns"]'
-            modules: '[]'
+            phase_name: "Servicios de Red"
+            modules: '["load_balancer", "dns"]'
           # Fase 5 - Monitoreo
           - phase: 5
-            #modules: '["monitoring"]'
-            modules: '[]'
+            phase_name: "Monitoreo"
+            modules: '["monitoring"]'
 
     steps:
       - uses: actions/checkout@v4
@@ -236,19 +238,26 @@ jobs:
           if terraform state pull > current.tfstate 2>/dev/null; then
             echo "✅ State downloaded successfully"
             
-            # Upload to bucket with timestamp
-            TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-            STATE_NAME="${{ steps.set-env.outputs.environment }}_phase${{ matrix.phase }}_${TIMESTAMP}.tfstate"
-            
-            if oci os object put \
-              --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" \
-              --namespace "${{ secrets.OCI_NAMESPACE }}" \
-              --name "$STATE_NAME" \
-              --file "current.tfstate" 2>/dev/null; then
-              echo "✅ State uploaded as $STATE_NAME"
-              echo "🔗 URL: https://objectstorage.${{ secrets.OCI_REGION }}.oraclecloud.com/n/${{ secrets.OCI_NAMESPACE }}/b/${{ secrets.OCI_BUCKET_NAME }}/o/$STATE_NAME"
+            # Check if state file has content
+            if [ -s "current.tfstate" ]; then
+              echo "✅ State file has content ($(wc -c < current.tfstate) bytes)"
+              
+              # Upload to bucket with timestamp
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              STATE_NAME="${{ steps.set-env.outputs.environment }}_phase${{ matrix.phase }}_${TIMESTAMP}.tfstate"
+              
+              if oci os object put \
+                --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" \
+                --namespace "${{ secrets.OCI_NAMESPACE }}" \
+                --name "$STATE_NAME" \
+                --file "current.tfstate" 2>/dev/null; then
+                echo "✅ State uploaded as $STATE_NAME"
+                echo "🔗 URL: https://objectstorage.${{ secrets.OCI_REGION }}.oraclecloud.com/n/${{ secrets.OCI_NAMESPACE }}/b/${{ secrets.OCI_BUCKET_NAME }}/o/$STATE_NAME"
+              else
+                echo "⚠️ Failed to upload state - continuing..."
+              fi
             else
-              echo "⚠️ Failed to upload state - continuing..."
+              echo "⚠️ State file is empty - skipping upload"
             fi
             
             rm -f current.tfstate
