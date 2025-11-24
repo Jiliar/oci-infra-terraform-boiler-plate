@@ -22,20 +22,24 @@ jobs:
         include:
           # Fase 1 - Fundamentos
           - phase: 1
-            modules: '["iam", "vault", "ocir"]'
+            #modules: '["iam", "vault", "ocir"]'
+            modules: '[]'
           # Fase 2 - Red y Seguridad
           - phase: 2
             #modules: '["networking", "waf"]'
             modules: '["waf"]'
           # Fase 3 - Infraestructura Core
           - phase: 3
-            modules: '["database", "k8s_cluster"]'
+            #modules: '["database", "k8s_cluster"]'
+            modules: '[]'
           # Fase 4 - Servicios de Red
           - phase: 4
-            modules: '["load_balancer", "dns"]'
+            #modules: '["load_balancer", "dns"]'
+            modules: '[]'
           # Fase 5 - Monitoreo
           - phase: 5
-            modules: '["monitoring"]'
+            #modules: '["monitoring"]'
+            modules: '[]'
 
     steps:
       - uses: actions/checkout@v4
