@@ -76,6 +76,8 @@ jobs:
       - name: Install and Configure OCI CLI
         if: steps.set-env.outputs.environment == 'dev'
         timeout-minutes: 5
+        env:
+          SUPPRESS_LABEL_WARNING: true
         run: |
           pip3 install oci-cli
           mkdir -p ~/.oci
@@ -96,6 +98,8 @@ jobs:
         id: bootstrap-check
         timeout-minutes: 10
         continue-on-error: false
+        env:
+          SUPPRESS_LABEL_WARNING: true
         run: |
           echo "🔍 Checking if terraform-state bucket exists..."
           
@@ -112,6 +116,8 @@ jobs:
         if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
         timeout-minutes: 5
         continue-on-error: true
+        env:
+          SUPPRESS_LABEL_WARNING: true
         run: |
           echo "🚀 Creating terraform-state bucket..."
           
