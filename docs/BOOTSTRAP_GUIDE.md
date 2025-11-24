@@ -1,8 +1,8 @@
-# OCI Bootstrap Guide - Object Storage Backend Setup
+# OCI Bootstrap Guide - Automated Infrastructure Setup
 
 ## 📋 Overview
 
-This guide explains how to bootstrap OCI infrastructure by creating Object Storage buckets for Terraform remote state management.
+This guide explains the automated bootstrap process for OCI infrastructure using GitHub Actions workflows that automatically create and manage Object Storage buckets for Terraform remote state.
 
 ## 🎯 Purpose
 
@@ -10,10 +10,12 @@ This guide explains how to bootstrap OCI infrastructure by creating Object Stora
 - Terraform state must be stored remotely for team collaboration
 - State locking prevents concurrent modifications
 - Bootstrap creates the infrastructure needed to store state
+- GitHub Actions automate the entire process
 
-**What Gets Created:**
-- 4 Object Storage buckets (one per environment)
-- Proper security configurations (encryption, versioning, access control)
+**What Gets Created Automatically:**
+- Single Object Storage bucket `terraform-state` (shared across environments)
+- Proper security configurations (encryption, versioning, public read access)
+- Automated state backup system with timestamped files
 
 ## 🏗️ Architecture
 
@@ -38,22 +40,19 @@ This guide explains how to bootstrap OCI infrastructure by creating Object Stora
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 📦 Resources Created
+## 📦 Resources Created Automatically
 
-### Object Storage Buckets (State Storage)
+### Object Storage Bucket (Shared State Storage)
 
-**Buckets:**
-- `terraform-state-dev`
-- `terraform-state-test`
-- `terraform-state-staging`
-- `terraform-state-prod`
+**Bucket:**
+- `terraform-state` (single bucket for all environments)
 
 **Features:**
 - ✅ **Versioning**: Enabled - keeps history of all state changes
 - ✅ **Encryption**: Oracle-managed - state files encrypted at rest
-- ✅ **Access Control**: IAM policies restrict access
-- ✅ **Lifecycle Rules**: Old versions retained for 90 days
-- ✅ **Pre-Authenticated Requests**: Disabled for security
+- ✅ **Public Read Access**: Enabled for HTTP backend compatibility
+- ✅ **Auto-Creation**: Created automatically by GitHub Actions if missing
+- ✅ **State Backups**: Timestamped backup files after each deployment phase
 
 **Purpose:**
 - Store `terraform.tfstate` file remotely
@@ -86,115 +85,69 @@ User B: terraform apply (while A is running)
   └─> Waits until User A completes
 ```
 
-## 🚀 Step-by-Step Deployment
+## 🚀 Automated Deployment via GitHub Actions
 
 ### Prerequisites
 
-**Required:**
-- OCI CLI configured
-- Terraform 1.5.0+ installed
-- OCI tenancy with proper permissions
-- Compartment OCID
+**Required GitHub Secrets:**
+- `OCI_USER_OCID` - Your OCI user OCID
+- `OCI_TENANCY_OCID` - Your OCI tenancy OCID
+- `OCI_FINGERPRINT` - Your API key fingerprint
+- `OCI_PRIVATE_KEY` - Your private key content
+- `OCI_REGION` - Your OCI region (e.g., sa-bogota-1)
+- `OCI_NAMESPACE` - Your Object Storage namespace
+- `OCI_COMPARTMENT_ID` - Target compartment OCID
+- `OCI_BUCKET_NAME` - Bucket name (terraform-state)
+- `OCI_AUTH_TOKEN` - Auth token for HTTP backend
+- `DB_ADMIN_PASSWORD` - Database admin password
 
-**Verify Setup:**
+**Setup GitHub Secrets:**
+1. Go to your repository → Settings → Secrets and variables → Actions
+2. Add each secret with the corresponding value from your OCI configuration
+
+### Step 1: Automated Workflow Triggers
+
+**terraform-plan.yml** (Triggered on Pull Requests):
+- Automatically checks if `terraform-state` bucket exists
+- Creates bucket if missing using OCI CLI
+- Runs terraform plan for validation
+- Only executes for dev environment initially
+
+**terraform-apply.yml** (Triggered on PR Merge):
+- Executes in 5 sequential phases:
+  1. **Fundamentos** (iam, vault, ocir)
+  2. **Red y Seguridad** (networking, waf)
+  3. **Infraestructura Core** (database, k8s_cluster)
+  4. **Servicios de Red** (load_balancer, dns)
+  5. **Monitoreo** (monitoring)
+- Automatically backs up tfstate after each phase
+- Creates timestamped backup files in bucket
+
+### Step 2: Manual Trigger (Development)
+
+**Create a Pull Request:**
 ```bash
-# Check OCI CLI configuration
-oci iam user get --user-id $(oci iam user list --query 'data[0].id' --raw-output)
+# Create feature branch
+git checkout -b feature/initial-setup
 
-# Check Terraform version
-terraform version
-
-# Expected: Terraform v1.5.0 or higher
-
-# Get compartment OCID
-export COMPARTMENT_ID=$(oci iam compartment list --query 'data[0].id' --raw-output)
-echo $COMPARTMENT_ID
+# Make a small change to trigger workflow
+echo "# Initial setup" >> README.md
+git add README.md
+git commit -m "Initial infrastructure setup"
+git push origin feature/initial-setup
 ```
 
-### Step 1: Configure OCI CLI
+**Create PR targeting dev branch:**
+1. Go to GitHub repository
+2. Create Pull Request from `feature/initial-setup` to `dev`
+3. Watch `terraform-plan.yml` workflow execute
+4. Verify bucket creation in workflow logs
 
-```bash
-# Run OCI setup if not configured
-oci setup config
-
-# Test configuration
-oci os ns get
-
-# Expected output: your namespace
-```
-
-### Step 2: Deploy Bootstrap Infrastructure
-
-**Navigate to bootstrap directory:**
-```bash
-cd environments/oci/bootstrap
-```
-
-**Review configuration:**
-```bash
-cat main.tf
-```
-
-**Initialize Terraform:**
-```bash
-terraform init
-```
-
-Output:
-```
-Initializing the backend...
-Initializing provider plugins...
-- Finding oracle/oci versions matching "~> 5.0"...
-- Installing oracle/oci v5.10.0...
-
-Terraform has been successfully initialized!
-```
-
-**Plan deployment:**
-```bash
-terraform plan
-```
-
-Review output:
-```
-Plan: 4 to add, 0 to change, 0 to destroy.
-
-Changes to Outputs:
-  + dev_bucket_name     = "terraform-state-dev"
-  + prod_bucket_name    = "terraform-state-prod"
-  + staging_bucket_name = "terraform-state-staging"
-  + test_bucket_name    = "terraform-state-test"
-```
-
-**Apply configuration:**
-```bash
-terraform apply
-```
-
-Type `yes` when prompted.
-
-**Verify resources created:**
-```bash
-# List Object Storage buckets
-oci os bucket list --compartment-id $COMPARTMENT_ID --query 'data[*].name' | grep terraform-state
-
-# Expected output:
-terraform-state-dev
-terraform-state-test
-terraform-state-staging
-terraform-state-prod
-```
-
-**Check bucket configuration:**
-```bash
-# Check versioning
-oci os bucket get --bucket-name terraform-state-dev --query 'data.versioning'
-
-# Expected output: "Enabled"
-
-# Check encryption
-oci os bucket get --bucket-name terraform-state-dev --query 'data."kms-key-id"'
-```
+**Merge PR to trigger deployment:**
+1. Merge the Pull Request
+2. Watch `terraform-apply.yml` workflow execute
+3. Monitor each phase deployment
+4. Check state backup files in bucket
 
 ### Step 3: Get OCI Configuration
 
@@ -335,28 +288,40 @@ by multiple users at the same time.
 
 ## 🔍 Verification and Testing
 
-### Check Object Storage State File
+### Check Automated Bucket Creation
 
+**Via GitHub Actions Logs:**
+1. Go to Actions tab in your repository
+2. Check `terraform-plan.yml` workflow logs
+3. Look for "Bootstrap Resources Check" step
+4. Verify bucket creation or existence confirmation
+
+**Via OCI Console:**
+1. Login to OCI Console
+2. Navigate to Object Storage & Archive Storage
+3. Check for `terraform-state` bucket
+4. Verify versioning is enabled
+
+### Check State Backup Files
+
+**Automated Backup Files:**
+- `dev_phase1_YYYYMMDD_HHMMSS.tfstate`
+- `dev_phase2_YYYYMMDD_HHMMSS.tfstate`
+- `dev_phase3_YYYYMMDD_HHMMSS.tfstate`
+- `dev_phase4_YYYYMMDD_HHMMSS.tfstate`
+- `dev_phase5_YYYYMMDD_HHMMSS.tfstate`
+
+**Download and Inspect:**
 ```bash
-# Download state file
-oci os object get --bucket-name terraform-state-dev --name terraform.tfstate --file state-backup.json
+# List all backup files
+oci os object list --bucket-name terraform-state --prefix dev_phase
 
-# View state
-cat state-backup.json | jq '.version'
-cat state-backup.json | jq '.resources | length'
+# Download specific backup
+oci os object get --bucket-name terraform-state --name dev_phase1_20241124_143022.tfstate --file backup.json
 
-# List object versions
-oci os object list-object-versions --bucket-name terraform-state-dev --prefix terraform.tfstate
-```
-
-### Test State Rollback
-
-```bash
-# List versions
-oci os object list-object-versions --bucket-name terraform-state-dev --prefix terraform.tfstate
-
-# Restore previous version
-oci os object restore --bucket-name terraform-state-dev --object-name terraform.tfstate --version-id <VERSION_ID>
+# View backup content
+cat backup.json | jq '.version'
+cat backup.json | jq '.resources | length'
 ```
 
 ## 🔧 Troubleshooting
@@ -415,20 +380,19 @@ export OCI_CLI_KEY_FILE=<path_to_private_key>
 ## 📊 Final Structure
 
 ```
+.github/workflows/
+├── terraform-plan.yml    # Auto-creates bucket, runs plans
+└── terraform-apply.yml   # Sequential deployment + state backup
+
 environments/oci/
-├── bootstrap/
-│   ├── main.tf              # Creates Object Storage buckets
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfstate    # Local state (bootstrap only)
-│
 ├── dev/
-│   ├── backend.tf           # Points to Object Storage bucket
-│   ├── main.tf
+│   ├── backend.tf           # Points to terraform-state bucket
+│   ├── main.tf              # Infrastructure modules
+│   ├── terraform.tfvars     # Tokenized variables
 │   └── (state in Object Storage)
 │
 ├── test/
-│   ├── backend.tf
+│   ├── backend.tf           # Points to terraform-state bucket
 │   ├── main.tf
 │   └── (state in Object Storage)
 │
@@ -441,17 +405,26 @@ environments/oci/
     ├── backend.tf
     ├── main.tf
     └── (state in Object Storage)
+
+Object Storage Bucket: terraform-state
+├── dev.tfstate                    # Main state file
+├── dev_phase1_20241124_143022.tfstate  # Backup files
+├── dev_phase2_20241124_143045.tfstate
+├── dev_phase3_20241124_143102.tfstate
+├── dev_phase4_20241124_143125.tfstate
+└── dev_phase5_20241124_143150.tfstate
 ```
 
 ## ⚠️ Important Notes
 
-1. **Bootstrap uses local state** - Only bootstrap environment stores state locally
-2. **All other environments use remote state** - Dev, test, staging, prod use Object Storage
-3. **Never delete bootstrap state** - Keep `bootstrap/terraform.tfstate` safe
-4. **Bucket names must be unique** - Within your tenancy
-5. **State locking via HTTP backend** - Uses Object Storage API
-6. **Versioning is enabled** - Can rollback to previous states
-7. **Encryption is automatic** - Oracle-managed encryption by default
+1. **Fully automated bootstrap** - No manual terraform commands needed
+2. **Single shared bucket** - All environments use `terraform-state` bucket
+3. **GitHub Actions handle everything** - Bucket creation, state management, backups
+4. **Sequential deployment phases** - Prevents resource dependency issues
+5. **Automatic state backups** - Timestamped files after each phase
+6. **Public read access** - Required for HTTP backend compatibility
+7. **Environment-specific state files** - `dev.tfstate`, `test.tfstate`, etc.
+8. **Secrets management** - All credentials stored in GitHub Secrets
 
 ## 🔐 Security Best Practices
 
