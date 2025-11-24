@@ -90,7 +90,7 @@ jobs:
             --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
             --name "${{ secrets.OCI_BUCKET_NAME }}" \
             --namespace "${{ secrets.OCI_NAMESPACE }}" \
-            --public-access-type ObjectReadWrite \
+            --public-access-type ObjectRead \
             --versioning Enabled 2>/dev/null; then
             echo "✅ Public bucket ${{ secrets.OCI_BUCKET_NAME }} created successfully"
           else
