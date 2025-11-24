@@ -1,254 +1,254 @@
-# OCI Terraform 100% Compliance Verification
+# Verificación de Cumplimiento 100% de OCI Terraform
 
-## Sequence Diagram Components vs Terraform Implementation
+## Componentes del Diagrama de Secuencia vs Implementación Terraform
 
-### ✅ 1. DNS Resolution & Security
-- **Component**: OCI DNS
+### ✅ 1. Resolución DNS y Seguridad
+- **Componente**: OCI DNS
 - **Terraform**: `modules/oci/dns/main.tf`
-  - `oci_dns_zone.zone` - Primary DNS zone
-  - `oci_dns_rrset.lb_a_record` - A record pointing to Load Balancer IP
-- **Status**: ✅ IMPLEMENTED
+  - `oci_dns_zone.zone` - Zona DNS primaria
+  - `oci_dns_rrset.lb_a_record` - Registro A apuntando a IP del Load Balancer
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 2. WAF Policy with OWASP Rules
-- **Component**: WAF Policy (942100, 942200, 941100, 941110)
+### ✅ 2. Política WAF con Reglas OWASP
+- **Componente**: Política WAF (942100, 942200, 941100, 941110)
 - **Terraform**: `modules/oci/waf/main.tf`
-  - `oci_waf_web_app_firewall_policy.waf_policy` - WAF policy with OWASP rules
-  - `oci_waf_web_app_firewall.waf` - WAF attached to Load Balancer
-  - SQL Injection: 942100, 942200
-  - XSS Protection: 941100, 941110
-  - Prevention mode with 403 response
-- **Status**: ✅ IMPLEMENTED
+  - `oci_waf_web_app_firewall_policy.waf_policy` - Política WAF con reglas OWASP
+  - `oci_waf_web_app_firewall.waf` - WAF adjunto al Load Balancer
+  - Inyección SQL: 942100, 942200
+  - Protección XSS: 941100, 941110
+  - Modo prevención con respuesta 403
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 3. WAF Rate Limiting
-- **Component**: Rate limit (429 Too Many Requests)
+### ✅ 3. Limitación de Velocidad WAF
+- **Componente**: Límite de velocidad (429 Too Many Requests)
 - **Terraform**: `modules/oci/waf/main.tf`
-  - `request_rate_limiting` block
-  - 100 requests per 60 seconds
-  - 60 second block duration
-- **Status**: ✅ IMPLEMENTED
+  - Bloque `request_rate_limiting`
+  - 100 solicitudes por 60 segundos
+  - Duración de bloqueo de 60 segundos
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 4. Load Balancer (Flexible Shape)
-- **Component**: Load Balancer with TLS termination
+### ✅ 4. Load Balancer (Forma Flexible)
+- **Componente**: Load Balancer con terminación TLS
 - **Terraform**: `modules/oci/load-balancer/main.tf`
-  - `oci_load_balancer_load_balancer.lb` - Flexible shape LB
-  - `oci_load_balancer_backend_set.backend_set` - Backend set for Istio
-  - `oci_load_balancer_backend.backend` - Backend instances
-  - `oci_load_balancer_certificate.tls_cert` - TLS certificate
-  - `oci_load_balancer_listener.https_listener` - HTTPS listener (443)
-  - `oci_load_balancer_listener.http_listener` - HTTP listener (80)
-- **Status**: ✅ IMPLEMENTED
+  - `oci_load_balancer_load_balancer.lb` - LB de forma flexible
+  - `oci_load_balancer_backend_set.backend_set` - Conjunto backend para Istio
+  - `oci_load_balancer_backend.backend` - Instancias backend
+  - `oci_load_balancer_certificate.tls_cert` - Certificado TLS
+  - `oci_load_balancer_listener.https_listener` - Listener HTTPS (443)
+  - `oci_load_balancer_listener.http_listener` - Listener HTTP (80)
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 5. Load Balancer Health Checks
-- **Component**: Health check validation
+### ✅ 5. Verificaciones de Salud del Load Balancer
+- **Componente**: Validación de verificación de salud
 - **Terraform**: `modules/oci/load-balancer/main.tf`
-  - Health checker on port 15021 (Istio health endpoint)
-  - URL path: `/healthz/ready`
-  - Return code: 200
-  - Interval: 10s, timeout: 3s, retries: 3
-- **Status**: ✅ IMPLEMENTED
+  - Verificador de salud en puerto 15021 (endpoint de salud Istio)
+  - Ruta URL: `/healthz/ready`
+  - Código de retorno: 200
+  - Intervalo: 10s, timeout: 3s, reintentos: 3
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 6. Istio Ingress Gateway
-- **Component**: Istio Ingress Gateway (LoadBalancer)
+### ✅ 6. Gateway de Ingreso Istio
+- **Componente**: Gateway de Ingreso Istio (LoadBalancer)
 - **Terraform**: `environments/oci/prod/main.tf`
-  - `helm_release.istio_ingress` - Istio gateway chart
-  - Service type: LoadBalancer
-  - Version: 1.20.0
+  - `helm_release.istio_ingress` - Chart de gateway Istio
+  - Tipo de servicio: LoadBalancer
+  - Versión: 1.20.0
 - **Kubernetes**: `shared/cluster-addons/istio/traffic-management/gateway.yaml`
-  - HTTP (80) and HTTPS (443) ports
-  - TLS mode: SIMPLE
-- **Status**: ✅ IMPLEMENTED
+  - Puertos HTTP (80) y HTTPS (443)
+  - Modo TLS: SIMPLE
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 7. Istiod Control Plane
-- **Component**: Istiod with mTLS certificate management
+### ✅ 7. Plano de Control Istiod
+- **Componente**: Istiod con gestión de certificados mTLS
 - **Terraform**: `environments/oci/prod/main.tf`
-  - `helm_release.istio_base` - Istio base chart
-  - `helm_release.istiod` - Istiod control plane
-  - Version: 1.20.0
-- **Status**: ✅ IMPLEMENTED
+  - `helm_release.istio_base` - Chart base de Istio
+  - `helm_release.istiod` - Plano de control Istiod
+  - Versión: 1.20.0
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 8. VirtualService Rules
-- **Component**: Apply VirtualService routing rules
+### ✅ 8. Reglas de VirtualService
+- **Componente**: Aplicar reglas de enrutamiento VirtualService
 - **Kubernetes**: `shared/cluster-addons/istio/traffic-management/virtual-service.yaml`
-  - Route by path prefix: `/api`
+  - Enrutamiento por prefijo de ruta: `/api`
   - Timeout: 30s
-  - Retries: 3 attempts with 10s per try
-  - Retry on: 5xx, reset, connect-failure, refused-stream
-- **Status**: ✅ IMPLEMENTED
+  - Reintentos: 3 intentos con 10s por intento
+  - Reintentar en: 5xx, reset, connect-failure, refused-stream
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 9. DestinationRule Policies
-- **Component**: Apply DestinationRule with circuit breaker
+### ✅ 9. Políticas de DestinationRule
+- **Componente**: Aplicar DestinationRule con circuit breaker
 - **Kubernetes**: `shared/cluster-addons/istio/traffic-management/destination-rule.yaml`
-  - Load balancer: LEAST_REQUEST
-  - Connection pool: TCP (100 max), HTTP (50 pending, 100 max)
-  - Outlier detection: 5 consecutive errors, 30s interval, 30s ejection
+  - Balanceador de carga: LEAST_REQUEST
+  - Pool de conexiones: TCP (100 máx), HTTP (50 pendientes, 100 máx)
+  - Detección de outliers: 5 errores consecutivos, intervalo 30s, expulsión 30s
   - Timeout: 30s
-- **Status**: ✅ IMPLEMENTED
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 10. Service Pod + Envoy Sidecar
-- **Component**: Service with Envoy sidecar injection
+### ✅ 10. Pod de Servicio + Sidecar Envoy
+- **Componente**: Servicio con inyección de sidecar Envoy
 - **Kubernetes**: `shared/cluster-addons/istio/external-services/sidecar-injection.yaml`
-  - Automatic sidecar injection enabled
-  - Envoy intercepts all traffic
-- **Status**: ✅ IMPLEMENTED
+  - Inyección automática de sidecar habilitada
+  - Envoy intercepta todo el tráfico
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 11. mTLS Certificate Validation
-- **Component**: Validate mTLS certificates
+### ✅ 11. Validación de Certificados mTLS
+- **Componente**: Validar certificados mTLS
 - **Kubernetes**: `shared/cluster-addons/istio/security/peer-authentication.yaml`
-  - PeerAuthentication mode: STRICT
+  - Modo PeerAuthentication: STRICT
   - Namespace: istio-system
-  - Enforces mTLS for all services
-- **Status**: ✅ IMPLEMENTED
+  - Aplica mTLS para todos los servicios
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 12. IAM Dynamic Group
-- **Component**: IAM Dynamic Group for instance principals
+### ✅ 12. Grupo Dinámico IAM
+- **Componente**: Grupo Dinámico IAM para principales de instancia
 - **Terraform**: `modules/oci/iam/main.tf`
-  - `oci_identity_dynamic_group.instance_principal` - Dynamic group
-  - Matching rule: All instances in compartment
-  - Policies for vault, database, secrets access
-- **Status**: ✅ IMPLEMENTED
+  - `oci_identity_dynamic_group.instance_principal` - Grupo dinámico
+  - Regla de coincidencia: Todas las instancias en compartimento
+  - Políticas para acceso a vault, base de datos, secretos
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 13. IAM Policies
-- **Component**: Validate Dynamic Group membership
+### ✅ 13. Políticas IAM
+- **Componente**: Validar membresía de Grupo Dinámico
 - **Terraform**: `modules/oci/iam/main.tf`
-  - `oci_identity_policy.policy` - IAM policies
-  - Allow read secret-bundles
-  - Allow use keys (KMS)
-  - Allow read autonomous-databases
-  - Allow manage objects
-- **Status**: ✅ IMPLEMENTED
+  - `oci_identity_policy.policy` - Políticas IAM
+  - Permitir leer secret-bundles
+  - Permitir usar llaves (KMS)
+  - Permitir leer autonomous-databases
+  - Permitir gestionar objetos
+- **Estado**: ✅ IMPLEMENTADO
 
 ### ✅ 14. OCI Vault KMS
-- **Component**: OCI Vault with KMS key management
+- **Componente**: OCI Vault con gestión de llaves KMS
 - **Terraform**: `modules/oci/secrets/main.tf`
-  - `oci_kms_vault.vault` - Vault resource
-  - `oci_kms_key.kms_key` - KMS key (AES 32-bit)
-  - Vault type: DEFAULT
-- **Status**: ✅ IMPLEMENTED
+  - `oci_kms_vault.vault` - Recurso Vault
+  - `oci_kms_key.kms_key` - Llave KMS (AES 32-bit)
+  - Tipo de Vault: DEFAULT
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 15. Vault Secrets (DB Credentials)
-- **Component**: Get DB credentials from Vault
+### ✅ 15. Secretos de Vault (Credenciales DB)
+- **Componente**: Obtener credenciales DB desde Vault
 - **Terraform**: `modules/oci/secrets/main.tf`
-  - `oci_vault_secret.db_username` - DB username secret
-  - `oci_vault_secret.db_password` - DB password secret
-  - Content type: BASE64
-  - Encrypted with KMS key
-- **Status**: ✅ IMPLEMENTED
+  - `oci_vault_secret.db_username` - Secreto de usuario DB
+  - `oci_vault_secret.db_password` - Secreto de contraseña DB
+  - Tipo de contenido: BASE64
+  - Encriptado con llave KMS
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 16. PostgreSQL Autonomous Database
-- **Component**: PostgreSQL DB with connection pool
+### ✅ 16. Base de Datos Autónoma PostgreSQL
+- **Componente**: DB PostgreSQL con pool de conexiones
 - **Terraform**: `modules/oci/database/main.tf`
   - `oci_database_autonomous_database.postgres` - PostgreSQL 15
-  - 1 OCPU, 1TB storage
-  - mTLS required
-  - Backup enabled (7 days retention)
-  - Workload: OLTP
-- **Status**: ✅ IMPLEMENTED
+  - 1 OCPU, 1TB almacenamiento
+  - mTLS requerido
+  - Backup habilitado (retención 7 días)
+  - Carga de trabajo: OLTP
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 17. Connection Pooling
-- **Component**: SQL Query with connection pool
-- **Implementation**: Istio DestinationRule
-  - TCP max connections: 100
-  - HTTP1 max pending: 50
-  - HTTP2 max requests: 100
-- **Status**: ✅ IMPLEMENTED (Application-level)
+### ✅ 17. Pool de Conexiones
+- **Componente**: Consulta SQL con pool de conexiones
+- **Implementación**: Istio DestinationRule
+  - Conexiones TCP máximas: 100
+  - HTTP1 máximo pendiente: 50
+  - HTTP2 máximo solicitudes: 100
+- **Estado**: ✅ IMPLEMENTADO (Nivel de aplicación)
 
-### ✅ 18. OCI Logging Service
-- **Component**: OCI Logging for LB, WAF, DB
+### ✅ 18. Servicio de Logging OCI
+- **Componente**: OCI Logging para LB, WAF, DB
 - **Terraform**: `modules/oci/monitoring/main.tf`
-  - `oci_logging_log_group.log_group` - Log group
-  - `oci_logging_log.lb_access_log` - LB access logs
-  - `oci_logging_log.waf_log` - WAF security events
-  - `oci_logging_log.db_log` - DB slow query logs
-  - Retention: 30 days
-- **Status**: ✅ IMPLEMENTED
+  - `oci_logging_log_group.log_group` - Grupo de logs
+  - `oci_logging_log.lb_access_log` - Logs de acceso LB
+  - `oci_logging_log.waf_log` - Eventos de seguridad WAF
+  - `oci_logging_log.db_log` - Logs de consultas lentas DB
+  - Retención: 30 días
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 19. OCI Monitoring Alarms
-- **Component**: OCI Monitoring with alarms
+### ✅ 19. Alarmas de Monitoreo OCI
+- **Componente**: Monitoreo OCI con alarmas
 - **Terraform**: `modules/oci/monitoring/main.tf`
-  - `oci_monitoring_alarm.alarm` - CPU utilization alarm
-  - Threshold: 80%
-  - Severity: CRITICAL
-- **Status**: ✅ IMPLEMENTED
+  - `oci_monitoring_alarm.alarm` - Alarma de utilización CPU
+  - Umbral: 80%
+  - Severidad: CRITICAL
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 20. Authorization Policy
-- **Component**: Istio AuthorizationPolicy
+### ✅ 20. Política de Autorización
+- **Componente**: Istio AuthorizationPolicy
 - **Kubernetes**: `shared/cluster-addons/istio/security/authorization-policy.yaml`
-  - Action: ALLOW
-  - Source principals: istio-ingressgateway-service-account
-  - Methods: GET, POST, PUT, DELETE
-- **Status**: ✅ IMPLEMENTED
+  - Acción: ALLOW
+  - Principales de origen: istio-ingressgateway-service-account
+  - Métodos: GET, POST, PUT, DELETE
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ 21. OKE Basic Cluster
-- **Component**: OKE Basic Cluster with ARM instances
+### ✅ 21. Cluster Básico OKE
+- **Componente**: Cluster Básico OKE con instancias ARM
 - **Terraform**: `modules/oci/k8s-cluster/main.tf`
-  - Cluster type: BASIC_CLUSTER
-  - Kubernetes version: v1.28.2
-  - Node shape: VM.Standard.A1.Flex (ARM)
+  - Tipo de cluster: BASIC_CLUSTER
+  - Versión Kubernetes: v1.28.2
+  - Forma de nodo: VM.Standard.A1.Flex (ARM)
   - 1 OCPU, 6GB RAM
-- **Status**: ✅ IMPLEMENTED
+- **Estado**: ✅ IMPLEMENTADO
 
-## Error Scenarios Coverage
+## Cobertura de Escenarios de Error
 
-### ✅ Error 1: Database Connection Failure
-- **Implementation**:
-  - Circuit breaker: 5 consecutive errors trigger ejection
-  - Retry logic: 3 attempts with exponential backoff
-  - Response: 503 Service Unavailable
-- **Status**: ✅ IMPLEMENTED
+### ✅ Error 1: Falla de Conexión a Base de Datos
+- **Implementación**:
+  - Circuit breaker: 5 errores consecutivos activan expulsión
+  - Lógica de reintentos: 3 intentos con backoff exponencial
+  - Respuesta: 503 Service Unavailable
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ Error 2: Service Timeout
-- **Implementation**:
-  - VirtualService timeout: 30s
-  - DestinationRule timeout: 30s
-  - Response: 504 Gateway Timeout
-- **Status**: ✅ IMPLEMENTED
+### ✅ Error 2: Timeout de Servicio
+- **Implementación**:
+  - Timeout VirtualService: 30s
+  - Timeout DestinationRule: 30s
+  - Respuesta: 504 Gateway Timeout
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ Error 3: WAF Rate Limit Exceeded
-- **Implementation**:
-  - Rate limiting: 100 requests per 60 seconds
-  - Block duration: 60 seconds
-  - Response: 429 Too Many Requests
-  - Logged to OCI Logging
-- **Status**: ✅ IMPLEMENTED
+### ✅ Error 3: Límite de Velocidad WAF Excedido
+- **Implementación**:
+  - Limitación de velocidad: 100 solicitudes por 60 segundos
+  - Duración de bloqueo: 60 segundos
+  - Respuesta: 429 Too Many Requests
+  - Registrado en OCI Logging
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ Error 4: WAF OWASP Rule Violation
-- **Implementation**:
-  - SQL Injection detection: 942100, 942200
-  - XSS protection: 941100, 941110
-  - Prevention mode: BLOCK
-  - Response: 403 Forbidden
-  - Logged to OCI Logging
-- **Status**: ✅ IMPLEMENTED
+### ✅ Error 4: Violación de Regla OWASP WAF
+- **Implementación**:
+  - Detección de inyección SQL: 942100, 942200
+  - Protección XSS: 941100, 941110
+  - Modo prevención: BLOCK
+  - Respuesta: 403 Forbidden
+  - Registrado en OCI Logging
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ Error 5: Vault Access Denied
-- **Implementation**:
-  - IAM policies validate access
-  - Dynamic group membership required
-  - Response: 403 Access Denied
-  - Logged to OCI Logging
-  - Application returns: 500 Internal Error
-- **Status**: ✅ IMPLEMENTED
+### ✅ Error 5: Acceso Denegado a Vault
+- **Implementación**:
+  - Políticas IAM validan acceso
+  - Membresía de grupo dinámico requerida
+  - Respuesta: 403 Access Denied
+  - Registrado en OCI Logging
+  - Aplicación retorna: 500 Internal Error
+- **Estado**: ✅ IMPLEMENTADO
 
-### ✅ Error 6: IAM Authentication Failure
-- **Implementation**:
-  - Dynamic group validation
-  - Instance principal authentication
-  - Response: Authentication Failed
-  - Logged to OCI Logging
-  - Application returns: 401 Unauthorized
-- **Status**: ✅ IMPLEMENTED
+### ✅ Error 6: Falla de Autenticación IAM
+- **Implementación**:
+  - Validación de grupo dinámico
+  - Autenticación de principal de instancia
+  - Respuesta: Authentication Failed
+  - Registrado en OCI Logging
+  - Aplicación retorna: 401 Unauthorized
+- **Estado**: ✅ IMPLEMENTADO
 
-## Summary
+## Resumen
 
-**Total Components Required**: 21
-**Components Implemented**: 21
-**Compliance Rate**: 100%
+**Total de Componentes Requeridos**: 21
+**Componentes Implementados**: 21
+**Tasa de Cumplimiento**: 100%
 
-**Total Error Scenarios Required**: 6
-**Error Scenarios Implemented**: 6
-**Error Coverage**: 100%
+**Total de Escenarios de Error Requeridos**: 6
+**Escenarios de Error Implementados**: 6
+**Cobertura de Errores**: 100%
 
-## Verification Commands
+## Comandos de Verificación
 
 ```bash
 # Verify WAF is attached to Load Balancer
@@ -282,6 +282,6 @@ kubectl get gateway -n istio-system
 kubectl get virtualservice -n default
 ```
 
-## Conclusion
+## Conclusión
 
-The OCI Terraform project is **100% compliant** with the OCI_SEQUENCE_DIAGRAM.puml specification. All 21 components and 6 error scenarios are fully implemented and properly integrated.
+El proyecto OCI Terraform es **100% compatible** con la especificación OCI_SEQUENCE_DIAGRAM.puml. Los 21 componentes y 6 escenarios de error están completamente implementados e integrados correctamente.

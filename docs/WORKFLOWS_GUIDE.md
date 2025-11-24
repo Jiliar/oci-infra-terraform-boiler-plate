@@ -1,128 +1,133 @@
-# GitHub Actions Workflows Guide - OCI Infrastructure
+# Guía de Workflows de GitHub Actions - Infraestructura OCI
 
-## 📋 Overview
+## 📋 Descripción General
 
-This guide explains the GitHub Actions workflows for deploying OCI infrastructure using Terraform. The workflows automate validation and deployment across all environments (dev, test, staging, prod) with modular deployment strategy.
+Esta guía explica los workflows de GitHub Actions para desplegar infraestructura OCI usando Terraform. Los workflows automatizan la validación y despliegue en todos los entornos (dev, test, staging, prod) con estrategia de despliegue modular.
 
-## 🔄 Workflow Execution Order
+## 🔄 Orden de Ejecución de Workflows
 
-### 1️⃣ **Terraform Plan** (Validation Phase)
+### 1️⃣ **Terraform Plan** (Fase de Validación)
 
-**File:** `.github/workflows/terraform-plan.yml`  
-**Trigger:** Pull Request `[opened, synchronize, reopened]` to branches `[dev, test, staging, main]`  
-**Purpose:** Validate Terraform syntax and preview infrastructure changes  
-**Strategy:** Matrix deployment across 10 modules per environment
+**Archivo:** `.github/workflows/terraform-plan.yml`  
+**Activador:** Pull Request `[opened, synchronize, reopened]` a ramas `[dev, test, staging, main]`  
+**Propósito:** Validar sintaxis de Terraform y previsualizar cambios de infraestructura  
+**Estrategia:** Despliegue matrix en 10 módulos por entorno
 
-**Modules Matrix:**
+**Matriz de Módulos:**
 - `networking` - VCN, subnets, gateways, security lists
-- `k8s_cluster` - OKE cluster (control plane only)
-- `database` - MySQL/PostgreSQL managed services
+- `k8s_cluster` - Cluster OKE (solo control plane)
+- `database` - Servicios gestionados PostgreSQL
 - `ocir` - Oracle Container Image Registry
-- `load_balancer` - OCI Load Balancer
-- `dns` - OCI DNS management
-- `vault` - OCI Vault for secrets
-- `iam` - Identity and Access Management
+- `load_balancer` - Balanceador de Carga OCI
+- `dns` - Gestión DNS de OCI
+- `vault` - OCI Vault para secretos
+- `iam` - Gestión de Identidad y Acceso
 - `waf` - Web Application Firewall
-- `monitoring` - OCI Monitoring and logging
+- `monitoring` - Monitoreo y logging de OCI
 
-**Steps executed:**
-1. Checkout code
-2. Setup Terraform 1.5.0
-3. Set environment based on target branch (`github.event.pull_request.base.ref`)
-4. Configure OCI CLI with API keys
-5. Bootstrap resources check (dev only)
-6. Setup Terraform variables from secrets
-7. `terraform init` - Initialize backend and providers
-8. `terraform plan` - Generate execution plan per module
+**Pasos Ejecutados:**
+1. Descargar código
+2. Configurar Terraform 1.5.0
+3. Establecer entorno basado en rama destino (`github.event.pull_request.base.ref`)
+4. Configurar OCI CLI con claves API (solo dev)
+5. Verificación de recursos bootstrap (solo dev)
+6. Configurar variables de Terraform desde secrets
+7. `terraform init` - Inicializar backend y providers
+8. `terraform plan` - Generar plan de ejecución por módulo
 
-### 2️⃣ **Terraform Apply** (Deployment Phase)
+### 2️⃣ **Terraform Apply** (Fase de Despliegue)
 
-**File:** `.github/workflows/terraform-apply.yml`  
-**Trigger:** Pull Request `[closed]` with `merged == true` to branches `[dev, test, staging, main]`  
-**Purpose:** Deploy infrastructure changes to OCI after successful validation  
-**Strategy:** Multi-level phased deployment respecting module dependencies
+**Archivo:** `.github/workflows/terraform-apply.yml`  
+**Activador:** Pull Request `[closed]` con `merged == true` a ramas `[dev, test, staging, main]`  
+**Propósito:** Desplegar cambios de infraestructura a OCI después de validación exitosa  
+**Estrategia:** Despliegue secuencial en 5 fases con `max-parallel: 1`
 
-## 🔗 Deployment Dependency Levels
+## 🔗 Fases de Despliegue Secuencial
 
-### **Nivel 1 - Fundamentos** (Deploy First)
+### **Fase 1 - Fundamentos** (Desplegar Primero)
 - `iam` ✅ - Políticas, grupos, usuarios (requerido por todo)
-- `vault` ✅ - Secrets management (requerido por DB, k8s)
-- `ocir` ✅ - Container registry (requerido por k8s)
+- `vault` ✅ - Gestión de secretos (requerido por DB, k8s)
+- `ocir` ✅ - Registro de contenedores (requerido por k8s)
 
-### **Nivel 2 - Red y Seguridad**
+### **Fase 2 - Red y Seguridad**
 - `networking` ✅ - VCN, subnets, security lists
 - `waf` ✅ - Web Application Firewall (depende de networking)
 
-### **Nivel 3 - Infraestructura Core**
+### **Fase 3 - Infraestructura Core**
 - `database` ✅ - Bases de datos (depende de networking)
 - `k8s_cluster` ✅ - Kubernetes (depende de networking, iam, ocir)
 
-### **Nivel 4 - Servicios de Red Avanzados**
-- `load_balancer` ✅ - Load Balancer (depende de k8s_cluster, networking)
-- `dns` ✅ - DNS records (depende de load_balancer)
+### **Fase 4 - Servicios de Red Avanzados**
+- `load_balancer` ✅ - Balanceador de Carga (depende de k8s_cluster, networking)
+- `dns` ✅ - Registros DNS (depende de load_balancer)
 
-### **Nivel 5 - Monitoreo** (Deploy Last)
+### **Fase 5 - Monitoreo** (Desplegar Último)
 - `monitoring` ✅ - (depende de k8s_cluster, load_balancer)
 
-**Job Dependencies:**
-1. **Plan Job** (validation) → **Apply Jobs** (phased deployment)
-2. Each level waits for previous level completion
-3. Modules within same level deploy in parallel
+**Características del Workflow:**
+1. **Ejecución Secuencial**: `max-parallel: 1` - una fase a la vez
+2. **Backup Automático**: Estado respaldado después de cada fase
+3. **Validación Final**: Job separado para verificar estado
+4. **Solo Dev**: Bootstrap y backup solo en entorno dev
 
-**Steps executed:**
-1. **Plan Job:**
-   - Checkout code
-   - Setup Terraform 1.5.0
-   - Set environment based on target branch
-   - Configure OCI CLI with API keys
-   - Setup Terraform variables from secrets
-   - `terraform init` - Initialize backend and providers
-   - `terraform plan` - Validate execution plan per module
-2. **Apply Jobs** (5 sequential levels):
-   - **Level 1**: Deploy iam, vault, ocir (parallel)
-   - **Level 2**: Deploy networking, waf (parallel, waits for Level 1)
-   - **Level 3**: Deploy database, k8s_cluster (parallel, waits for Level 2)
-   - **Level 4**: Deploy load_balancer, dns (parallel, waits for Level 3)
-   - **Level 5**: Deploy monitoring (waits for Level 4)
+**Pasos Ejecutados:**
+1. **Job Apply** (5 fases secuenciales):
+   - Descargar código
+   - Configurar Terraform 1.5.0
+   - Establecer entorno basado en rama destino
+   - Configurar OCI CLI con claves API (solo dev)
+   - Verificar/crear bucket terraform-state (solo dev)
+   - Configurar variables de Terraform desde secrets
+   - `terraform init` - Inicializar backend y providers
+   - **Fase 1**: Desplegar iam, vault, ocir + backup estado
+   - **Fase 2**: Desplegar networking, waf + backup estado
+   - **Fase 3**: Desplegar database, k8s_cluster + backup estado
+   - **Fase 4**: Desplegar load_balancer, dns + backup estado
+   - **Fase 5**: Desplegar monitoring + backup estado
+   - Apply final completo (solo en fase 5)
+2. **Job validate-state**:
+   - Validar configuración y estado final
 
-## 🚀 Complete Deployment Flow
+## 🚀 Flujo Completo de Despliegue
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. Developer modifies Terraform files                       │
+│ 1. Desarrollador modifica archivos Terraform                │
 │    └─> environments/oci/dev/main.tf                         │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 2. Create Pull Request to main/develop                      │
+│ 2. Crear Pull Request a dev/test/staging/main               │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 3. terraform-plan.yml triggers automatically                │
-│    ├─> Runs for: dev, test, staging, prod                   │
+│ 3. terraform-plan.yml se activa automáticamente            │
+│    ├─> Ejecuta para: entorno según rama destino            │
+│    ├─> Verifica/crea bucket (solo dev)                     │
 │    ├─> terraform init                                       │
 │    ├─> terraform validate                                   │
-│    └─> terraform plan -out=tfplan                           │
+│    └─> terraform plan (10 módulos en paralelo)              │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 4. Review plan output in GitHub Actions                     │
-│    └─> Check resources to be created/modified/destroyed     │
+│ 4. Revisar salida del plan en GitHub Actions               │
+│    └─> Verificar recursos a crear/modificar/destruir        │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 5. Merge Pull Request to main                               │
+│ 5. Mergear Pull Request                                     │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 6. terraform-apply.yml triggers automatically               │
-│    ├─> Runs for: dev, test, staging, prod                   │
-│    ├─> terraform init                                       │
-│    └─> terraform apply -auto-approve                        │
+│ 6. terraform-apply.yml se activa automáticamente           │
+│    ├─> 5 fases secuenciales (max-parallel: 1)              │
+│    ├─> Backup de estado después de cada fase (solo dev)    │
+│    ├─> terraform apply -auto-approve por módulo            │
+│    └─> Validación final de estado                          │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 7. OCI Infrastructure Deployed ✅                            │
+│ 7. Infraestructura OCI Desplegada ✅                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -170,24 +175,21 @@ oci iam compartment list --query 'data[0].id' --raw-output
 oci iam availability-domain list --compartment-id $TENANCY_OCID --query 'data[0].name' --raw-output
 ```
 
-### 3. Object Storage Backend Configuration
+### 3. Configuración de Backend de Object Storage
 
-**Create Object Storage buckets for state storage:**
+**El bucket se crea automáticamente:**
 ```bash
-# Get namespace
+# El workflow terraform-plan.yml crea automáticamente el bucket si no existe
+# Solo necesitas obtener el namespace para configurar los secrets
+
+# Obtener namespace
 export OCI_NAMESPACE=$(oci os ns get --query 'data' --raw-output)
+echo "Tu namespace es: $OCI_NAMESPACE"
 
-# Create buckets for each environment
-oci os bucket create --compartment-id $COMPARTMENT_ID --name terraform-state-dev
-oci os bucket create --compartment-id $COMPARTMENT_ID --name terraform-state-test
-oci os bucket create --compartment-id $COMPARTMENT_ID --name terraform-state-staging
-oci os bucket create --compartment-id $COMPARTMENT_ID --name terraform-state-prod
-
-# Enable versioning
-oci os bucket update --bucket-name terraform-state-dev --versioning Enabled
-oci os bucket update --bucket-name terraform-state-test --versioning Enabled
-oci os bucket update --bucket-name terraform-state-staging --versioning Enabled
-oci os bucket update --bucket-name terraform-state-prod --versioning Enabled
+# El bucket 'terraform-state' se creará automáticamente con:
+# - Acceso público de lectura (ObjectRead)
+# - Versionado habilitado
+# - Compartido entre todos los entornos
 ```
 
 ### 4. Install Required Tools
@@ -269,124 +271,108 @@ git push origin main
 3. Click **Secrets and variables** → **Actions**
 4. Click **New repository secret**
 
-## 🔐 Required GitHub Secrets
+## 🔐 Secrets Requeridos de GitHub
 
-### Core OCI Authentication Secrets
+### Secrets de Autenticación OCI Principales
 
-| Secret Name | Description | Example Value | Required |
-|-------------|-------------|---------------|----------|
-| `OCI_USER_OCID` | OCI User OCID | `ocid1.user.oc1..aaaaaaaa...` | ✅ |
-| `OCI_TENANCY_OCID` | OCI Tenancy OCID | `ocid1.tenancy.oc1..aaaaaaaa...` | ✅ |
-| `OCI_FINGERPRINT` | API Key Fingerprint | `aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99` | ✅ |
-| `OCI_PRIVATE_KEY` | Private Key Content | `-----BEGIN RSA PRIVATE KEY-----\n...` | ✅ |
-| `OCI_REGION` | OCI Region | `us-ashburn-1` | ✅ |
-| `OCI_COMPARTMENT_ID` | Target Compartment OCID | `ocid1.compartment.oc1..aaaaaaaa...` | ✅ |
-| `OCI_AVAILABILITY_DOMAIN` | Availability Domain | `AD-1` | ✅ |
+| Nombre del Secret | Descripción | Valor de Ejemplo | Requerido |
+|-------------------|--------------|------------------|----------|
+| `OCI_USER_OCID` | OCID del Usuario OCI | `ocid1.user.oc1..aaaaaaaa...` | ✅ |
+| `OCI_TENANCY_OCID` | OCID del Tenancy OCI | `ocid1.tenancy.oc1..aaaaaaaa...` | ✅ |
+| `OCI_FINGERPRINT` | Huella Digital de Clave API | `aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99` | ✅ |
+| `OCI_PRIVATE_KEY` | Contenido de Clave Privada | `-----BEGIN RSA PRIVATE KEY-----\n...` | ✅ |
+| `OCI_REGION` | Región OCI | `sa-bogota-1` | ✅ |
+| `OCI_COMPARTMENT_ID` | OCID del Compartimento Destino | `ocid1.compartment.oc1..aaaaaaaa...` | ✅ |
+| `OCI_NAMESPACE` | Namespace de Object Storage | `ax7ur15nzqvd` | ✅ |
+| `OCI_BUCKET_NAME` | Nombre del Bucket de Estado | `terraform-state` | ✅ |
+| `OCI_AUTH_TOKEN` | Token de Autenticación HTTP | `token-auth-123456` | ✅ |
 
-### Database Secrets
+### Secrets de Base de Datos
 
-| Secret Name | Description | Example Value | Required |
-|-------------|-------------|---------------|----------|
-| `DB_ADMIN_PASSWORD` | Database Admin Password | `SecureP@ssw0rd123!` | ✅ |
-| `DB_USER_PASSWORD` | Database User Password | `UserP@ssw0rd456!` | ⚠️ Optional |
+| Nombre del Secret | Descripción | Valor de Ejemplo | Requerido |
+|-------------------|--------------|------------------|----------|
+| `DB_ADMIN_PASSWORD` | Contraseña de Admin de BD | `SecureP@ssw0rd123!` | ✅ |
 
-### Application Secrets (Optional)
+**Nota:** Solo se requieren los secrets listados arriba. Los workflows actuales han sido simplificados y no requieren secrets adicionales para SSL, monitoreo o servicios externos.
 
-| Secret Name | Description | Example Value | Required |
-|-------------|-------------|---------------|----------|
-| `REDIS_PASSWORD` | Redis Authentication | `RedisP@ss789!` | ⚠️ Optional |
-| `JWT_SECRET` | JWT Token Secret | `jwt-secret-key-xyz` | ⚠️ Optional |
-| `API_KEY` | External API Key | `api-key-12345` | ⚠️ Optional |
+### Cómo Agregar Secrets al Repositorio de GitHub
 
-### SSL/TLS Certificates (Optional)
+#### Paso 1: Navegar a Configuración del Repositorio
+1. Ve a tu repositorio de GitHub
+2. Haz clic en **Settings** (pestaña superior)
+3. Haz clic en **Secrets and variables** → **Actions** (menú izquierdo)
+4. Haz clic en **New repository secret**
 
-| Secret Name | Description | Example Value | Required |
-|-------------|-------------|---------------|----------|
-| `SSL_CERTIFICATE` | SSL Certificate Content | `-----BEGIN CERTIFICATE-----\n...` | ⚠️ Optional |
-| `SSL_PRIVATE_KEY` | SSL Private Key | `-----BEGIN PRIVATE KEY-----\n...` | ⚠️ Optional |
-| `CA_CERTIFICATE` | CA Certificate Bundle | `-----BEGIN CERTIFICATE-----\n...` | ⚠️ Optional |
+#### Paso 2: Crear Cada Secret Individualmente
 
-### Monitoring & Observability (Optional)
-
-| Secret Name | Description | Example Value | Required |
-|-------------|-------------|---------------|----------|
-| `GRAFANA_ADMIN_PASSWORD` | Grafana Admin Password | `GrafanaP@ss123!` | ⚠️ Optional |
-| `PROMETHEUS_PASSWORD` | Prometheus Auth Password | `PrometheusP@ss456!` | ⚠️ Optional |
-
-### External Services (Optional)
-
-| Secret Name | Description | Example Value | Required |
-|-------------|-------------|---------------|----------|
-| `SLACK_WEBHOOK_URL` | Slack Notifications | `https://hooks.slack.com/...` | ⚠️ Optional |
-| `DATADOG_API_KEY` | Datadog Integration | `dd-api-key-xyz` | ⚠️ Optional |
-| `NEWRELIC_LICENSE_KEY` | New Relic License | `nr-license-123` | ⚠️ Optional |
-
-### How to Add Secrets to GitHub Repository
-
-#### Step 1: Navigate to Repository Settings
-1. Go to your GitHub repository
-2. Click **Settings** (top tab)
-3. Click **Secrets and variables** → **Actions** (left menu)
-4. Click **New repository secret**
-
-#### Step 2: Create Each Secret Individually
-
-**Format for each secret:**
+**Formato para cada secret:**
 ```
-Name: [EXACT_SECRET_NAME]
-Value: [VALUE_WITHOUT_QUOTES]
+Nombre: [NOMBRE_EXACTO_DEL_SECRET]
+Valor: [VALOR_SIN_COMILLAS]
 ```
 
-**Required Secrets to Create:**
+**Secrets Requeridos a Crear:**
 
 **Secret 1:**
 ```
-Name: OCI_USER_OCID
-Value: ocid1.user.oc1..aaaaaaaa...
+Nombre: OCI_USER_OCID
+Valor: ocid1.user.oc1..aaaaaaaa...
 ```
 
 **Secret 2:**
 ```
-Name: OCI_TENANCY_OCID
-Value: ocid1.tenancy.oc1..aaaaaaaa...
+Nombre: OCI_TENANCY_OCID
+Valor: ocid1.tenancy.oc1..aaaaaaaa...
 ```
 
 **Secret 3:**
 ```
-Name: OCI_FINGERPRINT
-Value: aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99
+Nombre: OCI_FINGERPRINT
+Valor: aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99
 ```
 
 **Secret 4:**
 ```
-Name: OCI_PRIVATE_KEY
-Value: -----BEGIN RSA PRIVATE KEY-----
+Nombre: OCI_PRIVATE_KEY
+Valor: -----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA...
 -----END RSA PRIVATE KEY-----
 ```
 
 **Secret 5:**
 ```
-Name: OCI_REGION
-Value: us-ashburn-1
+Nombre: OCI_REGION
+Valor: sa-bogota-1
 ```
 
 **Secret 6:**
 ```
-Name: OCI_COMPARTMENT_ID
-Value: ocid1.compartment.oc1..aaaaaaaa...
+Nombre: OCI_COMPARTMENT_ID
+Valor: ocid1.compartment.oc1..aaaaaaaa...
 ```
 
 **Secret 7:**
 ```
-Name: OCI_AVAILABILITY_DOMAIN
-Value: AD-1
+Nombre: OCI_NAMESPACE
+Valor: ax7ur15nzqvd
 ```
 
 **Secret 8:**
 ```
-Name: DB_ADMIN_PASSWORD
-Value: SecureP@ssw0rd123!
+Nombre: OCI_BUCKET_NAME
+Valor: terraform-state
+```
+
+**Secret 9:**
+```
+Nombre: OCI_AUTH_TOKEN
+Valor: token-auth-123456
+```
+
+**Secret 10:**
+```
+Nombre: DB_ADMIN_PASSWORD
+Valor: SecureP@ssw0rd123!
 ```
 
 #### Step 3: Get OCI Values
@@ -442,155 +428,155 @@ oci iam availability-domain list --compartment-id $OCI_TENANCY_OCID
 oci iam region list
 ```
 
-### 3. Verify Backend Configuration
+### 4. Verificar Configuración de Backend
 
-Ensure each environment has correct backend configuration:
+Cada entorno ya tiene la configuración correcta de backend:
 
-**File:** `environments/oci/dev/backend.tf`
+**Archivo:** `environments/oci/dev/backend.tf`
 ```hcl
 terraform {
   backend "http" {
-    address = "https://objectstorage.us-ashburn-1.oraclecloud.com/n/${var.namespace}/b/terraform-state-dev/o/terraform.tfstate"
-    update_method = "PUT"
+    address        = "https://objectstorage.sa-bogota-1.oraclecloud.com/n/ax7ur15nzqvd/b/terraform-state/o/dev.tfstate"
+    update_method  = "PUT"
+    lock_address   = "https://objectstorage.sa-bogota-1.oraclecloud.com/n/ax7ur15nzqvd/b/terraform-state/o/dev.tfstate"
+    lock_method    = "PUT"
+    unlock_address = "https://objectstorage.sa-bogota-1.oraclecloud.com/n/ax7ur15nzqvd/b/terraform-state/o/dev.tfstate"
+    unlock_method  = "DELETE"
   }
 }
 ```
 
-## 🎯 Usage Examples
+**Nota:** Cada entorno (dev/test/staging/prod) usa el mismo bucket pero archivos de estado separados.
 
-### Example 1: Deploy to Dev Environment
+## 🎯 Ejemplos de Uso
+
+### Ejemplo 1: Desplegar al Entorno Dev
 
 ```bash
-# 1. Create feature branch
-git checkout -b feature/update-dev-infrastructure
+# 1. Crear rama de feature
+git checkout -b feature/actualizar-infraestructura-dev
 
-# 2. Modify Terraform configuration
+# 2. Modificar configuración de Terraform
 vim environments/oci/dev/main.tf
 
-# Update database module
+# Actualizar módulo de base de datos
 module "database" {
   source = "../../../modules/oci/database"
   
   db_system_name = "postgres-dev"
   shape_name     = "VM.Standard.E2.1"
-  # ... other parameters
+  # ... otros parámetros
 }
 
-# 3. Commit changes
+# 3. Hacer commit de los cambios
 git add environments/oci/dev/main.tf
-git commit -m "Update OCI Database configuration for dev"
+git commit -m "Actualizar configuración de BD OCI para dev"
 
-# 4. Push to dev branch
-git push origin dev
+# 4. Crear Pull Request a rama dev
+git push origin feature/actualizar-infraestructura-dev
+# Crear PR en GitHub apuntando a rama 'dev'
 
-# → terraform-plan.yml runs automatically for all 10 modules
-# → terraform-apply.yml runs automatically for all 10 modules
-# → Infrastructure deployed to OCI dev environment
+# → terraform-plan.yml se ejecuta automáticamente (10 módulos)
+# → Al mergear: terraform-apply.yml se ejecuta (5 fases secuenciales)
+# → Infraestructura desplegada al entorno dev de OCI
 ```
 
-### Example 2: Deploy to Production Environment
+### Ejemplo 2: Desplegar al Entorno de Producción
 
 ```bash
-# 1. Update production configuration
+# 1. Actualizar configuración de producción
 vim environments/oci/prod/main.tf
 
-# Change: kubernetes_version = "v1.28.2"
+# Cambiar: kubernetes_version = "v1.28.2"
 
-# 2. Commit and push to main branch
+# 2. Hacer commit y crear PR a rama main
 git add environments/oci/prod/main.tf
-git commit -m "Update OKE to version 1.28.2 in production"
-git push origin main
+git commit -m "Actualizar OKE a versión 1.28.2 en producción"
+git push origin feature/update-k8s-prod
+# Crear PR en GitHub apuntando a rama 'main'
 
-# → terraform-plan.yml runs automatically for all 10 modules
-# → terraform-apply.yml runs automatically for all 10 modules
-# → Production infrastructure updated
+# → terraform-plan.yml se ejecuta automáticamente
+# → Al mergear: terraform-apply.yml se ejecuta (5 fases secuenciales)
+# → Infraestructura de producción actualizada
 ```
 
-### Example 3: Branch-Based Environment Deployment
+### Ejemplo 3: Despliegue Basado en Ramas
 
 ```bash
-# Deploy to different environments by pushing to specific branches
+# Desplegar a diferentes entornos creando PR a ramas específicas
 
-# Deploy to dev
-git push origin dev
-# → Deploys to dev environment
+# Desplegar a dev
+# Crear PR apuntando a rama 'dev'
+# → Despliega al entorno dev
 
-# Deploy to test
-git push origin test
-# → Deploys to test environment
+# Desplegar a test
+# Crear PR apuntando a rama 'test'
+# → Despliega al entorno test
 
-# Deploy to staging
-git push origin staging
-# → Deploys to staging environment
+# Desplegar a staging
+# Crear PR apuntando a rama 'staging'
+# → Despliega al entorno staging
 
-# Deploy to production
-git push origin main
-# → Deploys to prod environment
+# Desplegar a producción
+# Crear PR apuntando a rama 'main'
+# → Despliega al entorno prod
 ```
 
-## 🔍 Monitoring and Troubleshooting
+## 🔍 Monitoreo y Solución de Problemas
 
-### View Workflow Runs
+### Ver Ejecuciones de Workflow
 
-1. Go to **Actions** tab in GitHub repository
-2. Select workflow: "Terraform Plan" or "Terraform Apply"
-3. Click on specific run to view details
-4. Click on environment (dev/test/staging/prod) to view logs
+1. Ve a la pestaña **Actions** en el repositorio de GitHub
+2. Selecciona workflow: "Terraform Plan" o "Terraform Apply"
+3. Haz clic en una ejecución específica para ver detalles
+4. Haz clic en el entorno o fase para ver logs
 
-### Common Issues and Solutions
+### Problemas Comunes y Soluciones
 
-**Issue 1: Authentication Failed**
+**Problema 1: Fallo de Autenticación**
 ```
 Error: Service error:NotAuthenticated
 ```
 
-**Solution:**
-- Verify all OCI secrets are set correctly
-- Check API key fingerprint matches
-- Ensure private key is complete and valid
+**Solución:**
+- Verificar que todos los secrets de OCI estén configurados correctamente
+- Verificar que la huella digital de la clave API coincida
+- Asegurar que la clave privada esté completa y válida
 
-**Issue 2: Backend Initialization Failed**
+**Problema 2: Fallo de Inicialización de Backend**
 ```
 Error: Failed to configure backend: bucket doesn't exist
 ```
 
-**Solution:**
-```bash
-# Create missing Object Storage bucket
-oci os bucket create --compartment-id $COMPARTMENT_ID --name terraform-state-dev
+**Solución:**
+- El workflow crea automáticamente el bucket en el entorno dev
+- Para otros entornos, verificar que OCI_BUCKET_NAME y OCI_NAMESPACE sean correctos
+- El bucket se comparte entre todos los entornos
 
-# Enable versioning
-oci os bucket update --bucket-name terraform-state-dev --versioning Enabled
-```
-
-**Issue 3: Bootstrap Resources Not Found**
+**Problema 3: Recursos Bootstrap No Encontrados**
 ```
 Error: Compartment not found
-Error: Availability domain not found
 ```
 
-**Solution:**
+**Solución:**
 ```bash
-# Verify compartment exists
+# Verificar que el compartimento existe
 oci iam compartment get --compartment-id $OCI_COMPARTMENT_ID
 
-# List availability domains
-oci iam availability-domain list --compartment-id $OCI_TENANCY_OCID
-
-# Update GitHub secrets with correct values
+# Actualizar secrets de GitHub con valores correctos
 ```
 
-**Issue 4: Module Deployment Failure**
+**Problema 4: Fallo de Despliegue de Módulo**
 ```
 Error: Module k8s_cluster failed to apply
 ```
 
-**Solution:**
-- Check dependency levels (k8s_cluster requires networking, iam, ocir from previous levels)
-- Verify module-specific variables are set
-- Review module logs in GitHub Actions
-- Ensure previous dependency levels completed successfully
-- For k8s_cluster: Only cluster control plane deploys, node pools excluded
+**Solución:**
+- Verificar que las fases anteriores se completaron exitosamente
+- k8s_cluster requiere networking, iam, ocir de fases previas
+- Revisar logs del módulo en GitHub Actions
+- Para k8s_cluster: Solo se despliega el control plane, node pools excluidos
+- Verificar límites de tenancy de OCI
 
 ### Debug Locally
 
@@ -614,32 +600,33 @@ terraform plan
 terraform apply
 ```
 
-## ⚠️ Important Notes
+## ⚠️ Notas Importantes
 
-### Security Best Practices
+### Mejores Prácticas de Seguridad
 
-1. **Never commit API keys** to repository
-2. **Use least privilege IAM policies** for production
-3. **Enable MFA** on OCI accounts
-4. **Rotate API keys** regularly (every 90 days)
-5. **Enable Cloud Guard** for security monitoring
-6. **Use separate compartments** for dev/staging/prod
-7. **Enable Object Storage versioning** for state files
-8. **Review IAM policies** regularly
+1. **Nunca hacer commit de claves API** al repositorio
+2. **Usar políticas IAM de menor privilegio** para producción
+3. **Habilitar MFA** en cuentas de OCI
+4. **Rotar claves API** regularmente (cada 90 días)
+5. **Habilitar Cloud Guard** para monitoreo de seguridad
+6. **Usar compartimentos separados** para dev/staging/prod
+7. **Versionado automático** habilitado en bucket de estado
+8. **Revisar políticas IAM** regularmente
 
-### Workflow Considerations
+### Consideraciones de Workflow
 
-1. **Branch-Based Deployment**: Each branch deploys to specific environment
-   - `dev` branch → dev environment
-   - `test` branch → test environment  
-   - `staging` branch → staging environment
-   - `main` branch → prod environment
-2. **Phased Deployment**: 10 modules deploy in 5 dependency levels per environment
-3. **Auto-approve**: Apply workflow uses `-auto-approve`
-4. **Bootstrap Check**: Dev environment validates required resources exist
-5. **K8s Cluster**: Only control plane deploys, node pools excluded from pipeline
-6. **Environment Isolation**: Each environment has separate state and secrets
-7. **Dependency Strategy**: Modules deploy in levels respecting dependencies for reliability
+1. **Despliegue Basado en Ramas**: Cada rama despliega a entorno específico
+   - rama `dev` → entorno dev
+   - rama `test` → entorno test  
+   - rama `staging` → entorno staging
+   - rama `main` → entorno prod
+2. **Despliegue Secuencial**: 5 fases secuenciales con `max-parallel: 1`
+3. **Auto-aprobación**: Apply workflow usa `-auto-approve`
+4. **Bootstrap Automático**: Entorno dev crea bucket automáticamente
+5. **Cluster K8s**: Solo control plane se despliega, node pools excluidos
+6. **Aislamiento de Entornos**: Cada entorno tiene archivo de estado separado
+7. **Backup Automático**: Estado respaldado después de cada fase (solo dev)
+8. **Bucket Compartido**: Todos los entornos usan el mismo bucket terraform-state
 
 ## 📚 Additional Resources
 
