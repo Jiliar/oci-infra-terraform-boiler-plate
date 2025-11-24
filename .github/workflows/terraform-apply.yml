@@ -22,11 +22,31 @@ jobs:
       matrix:
         phase: [1, 2, 3, 4, 5]
         include:
-          # Fase 1 - Red y Seguridad
+          # Fase 1 - Fundamentos
           - phase: 1
+            phase_name: "Fundamentos"
+            #modules: '["iam", "vault", "ocir"]'
+            modules: '[]'
+          # Fase 2 - Red y Seguridad
+          - phase: 2
             phase_name: "Red y Seguridad"
             #modules: '["networking", "waf"]'
             modules: '["waf"]'
+          # Fase 3 - Infraestructura Core
+          - phase: 3
+            phase_name: "Infraestructura Core"
+            #modules: '["database", "k8s_cluster"]'
+            modules: '[]'
+          # Fase 4 - Servicios de Red
+          - phase: 4
+            phase_name: "Servicios de Red"
+            #modules: '["load_balancer", "dns"]'
+            modules: '[]'
+          # Fase 5 - Monitoreo
+          - phase: 5
+            phase_name: "Monitoreo"
+            #modules: '["monitoring"]'
+            modules: '[]'
 
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +76,8 @@ jobs:
       - name: Install and Configure OCI CLI
         if: steps.set-env.outputs.environment == 'dev'
         timeout-minutes: 5
+        env:
+          SUPPRESS_LABEL_WARNING: true
         run: |
           pip3 install oci-cli
           mkdir -p ~/.oci
@@ -76,6 +98,8 @@ jobs:
         id: bootstrap-check
         timeout-minutes: 10
         continue-on-error: false
+        env:
+          SUPPRESS_LABEL_WARNING: true
         run: |
           echo "🔍 Checking if terraform-state bucket exists..."
           
@@ -92,6 +116,8 @@ jobs:
         if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
         timeout-minutes: 5
         continue-on-error: true
+        env:
+          SUPPRESS_LABEL_WARNING: true
         run: |
           echo "🚀 Creating terraform-state bucket..."
           
