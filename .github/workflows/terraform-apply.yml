@@ -22,31 +22,11 @@ jobs:
       matrix:
         phase: [1, 2, 3, 4, 5]
         include:
-          # Fase 1 - Fundamentos
+          # Fase 1 - Red y Seguridad
           - phase: 1
-            phase_name: "Fundamentos"
-            #modules: '["iam", "vault", "ocir"]'
-            modules: '[]'
-          # Fase 2 - Red y Seguridad
-          - phase: 2
             phase_name: "Red y Seguridad"
             #modules: '["networking", "waf"]'
             modules: '["waf"]'
-          # Fase 3 - Infraestructura Core
-          - phase: 3
-            phase_name: "Infraestructura Core"
-            #modules: '["database", "k8s_cluster"]'
-            modules: '[]'
-          # Fase 4 - Servicios de Red
-          - phase: 4
-            phase_name: "Servicios de Red"
-            #modules: '["load_balancer", "dns"]'
-            modules: '[]'
-          # Fase 5 - Monitoreo
-          - phase: 5
-            phase_name: "Monitoreo"
-            #modules: '["monitoring"]'
-            modules: '[]'
 
     steps:
       - uses: actions/checkout@v4
@@ -181,11 +161,10 @@ jobs:
           echo "🚀 Applying Phase $PHASE modules..."
           echo "Modules: $MODULES_JSON"
           
-          # Convert JSON array to bash array
-          eval "MODULES=($(echo '$MODULES_JSON' | sed 's/\[/(/g' | sed 's/\]/)/g' | sed 's/,/ /g'))"
+          # Convert JSON array to bash array and clean up
+          MODULES_CLEAN=$(echo "$MODULES_JSON" | sed 's/\[//g' | sed 's/\]//g' | sed 's/"//g' | tr ',' ' ')
           
-          for module in "${MODULES[@]}"; do
-            module=$(echo "$module" | tr -d '"')
+          for module in $MODULES_CLEAN; do
             echo "📦 Processing module: $module"
             
             # Skip if already in state
