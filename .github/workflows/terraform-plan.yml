@@ -64,53 +64,38 @@ jobs:
       - name: Bootstrap Resources Check (Dev Only)
         if: steps.set-env.outputs.environment == 'dev'
         id: bootstrap-check
-        timeout-minutes: 30
+        timeout-minutes: 10
+        continue-on-error: false
+        run: |
+          echo "🔍 Checking if terraform-state bucket exists..."
+          
+          # Check if bucket exists
+          if oci os bucket get --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" --namespace-name "${{ secrets.OCI_NAMESPACE }}" >/dev/null 2>&1; then
+            echo "✅ Bucket ${{ secrets.OCI_BUCKET_NAME }} exists"
+            echo "bootstrap_needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Bucket ${{ secrets.OCI_BUCKET_NAME }} not found"
+            echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create Bootstrap Bucket (If Needed)
+        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
+        timeout-minutes: 5
         continue-on-error: true
         run: |
-          echo "🔍 Checking bootstrap resources for dev environment..."
+          echo "🚀 Creating public terraform-state bucket..."
           
-          # Check if compartment exists
-          if ! oci iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
-            echo "❌ Compartment not found: ${{ secrets.OCI_COMPARTMENT_ID }}"
-            echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
-            exit 1
+          # Create public bucket using OCI CLI
+          if oci os bucket create \
+            --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
+            --name "${{ secrets.OCI_BUCKET_NAME }}" \
+            --namespace "${{ secrets.OCI_NAMESPACE }}" \
+            --public-access-type ObjectRead \
+            --versioning Enabled 2>/dev/null; then
+            echo "✅ Public bucket ${{ secrets.OCI_BUCKET_NAME }} created successfully"
+          else
+            echo "⚠️ Bucket may already exist or creation failed - continuing..."
           fi
-          echo "✅ Compartment exists"
-          
-          # Check if availability domain exists
-          if ! oci iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
-            echo "❌ Availability domain not found: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
-            echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          echo "✅ Availability domain exists"
-          
-          echo "bootstrap_needed=false" >> $GITHUB_OUTPUT
-          echo "🎉 All bootstrap resources verified for dev environment"
-      
-      - name: Plan Bootstrap (If Needed)
-        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
-        working-directory: environments/oci/bootstrap
-        timeout-minutes: 10
-        run: |
-          echo "🚀 Planning bootstrap resources..."
-          
-          # Replace tokens in bootstrap terraform.tfvars
-          sed -i 's|__TENANCY_OCID__|${{ secrets.OCI_TENANCY_OCID }}|g' terraform.tfvars
-          sed -i 's|__USER_OCID__|${{ secrets.OCI_USER_OCID }}|g' terraform.tfvars
-          sed -i 's|__FINGERPRINT__|${{ secrets.OCI_FINGERPRINT }}|g' terraform.tfvars
-          sed -i 's|__COMPARTMENT_ID__|${{ secrets.OCI_COMPARTMENT_ID }}|g' terraform.tfvars
-          
-          # Replace private key
-          cat > terraform.tfvars.tmp << 'EOF'
-          ${{ secrets.OCI_PRIVATE_KEY }}
-          EOF
-          awk '/__PRIVATE_KEY__/ { print "private_key = <<EOK"; while ((getline line < "terraform.tfvars.tmp") > 0) { print line } print "EOK"; close("terraform.tfvars.tmp"); next } { print }' terraform.tfvars > terraform.tfvars.new
-          mv terraform.tfvars.new terraform.tfvars
-          rm -f terraform.tfvars.tmp
-          
-          terraform init -no-color
-          terraform plan -input=false -no-color
       
       - name: Replace Tokens with Secrets
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}

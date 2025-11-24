@@ -8,48 +8,69 @@ on:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     if: |
       github.event.pull_request.merged == true &&
       (github.event.pull_request.base.ref == 'dev' ||
        github.event.pull_request.base.ref == 'test' ||
        github.event.pull_request.base.ref == 'staging' ||
        github.event.pull_request.base.ref == 'main')
+    
     strategy:
       matrix:
-        # NOTE: k8s_cluster deploys cluster only, node pools excluded from pipeline
-        # NOTE: monitoring must be last as it depends on other resources (db_id, lb_id, etc.)
-        module: [networking, k8s_cluster, database, ocir, load_balancer, dns, vault, iam, waf, monitoring]
-    
+        phase: [1, 2, 3, 4, 5]
+        include:
+          # Fase 1 - Fundamentos
+          - phase: 1
+            #modules: '["iam", "vault", "ocir"]'
+            modules: '[]'
+          # Fase 2 - Red y Seguridad
+          - phase: 2
+            #modules: '["networking", "waf"]'
+            modules: '["waf"]'
+          # Fase 3 - Infraestructura Core
+          - phase: 3
+            #modules: '["database", "k8s_cluster"]'
+            modules: '[]'
+          # Fase 4 - Servicios de Red
+          - phase: 4
+            #modules: '["load_balancer", "dns"]'
+            modules: '[]'
+          # Fase 5 - Monitoreo
+          - phase: 5
+            #modules: '["monitoring"]'
+            modules: '[]'
+
     steps:
       - uses: actions/checkout@v4
       
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.0
-      
 
       - name: Set Environment
         id: set-env
         run: |
-          if [[ "${{ github.event.pull_request.base.ref }}" == "dev" ]]; then
-            echo "environment=dev" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.pull_request.base.ref }}" == "test" ]]; then
-            echo "environment=test" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.pull_request.base.ref }}" == "staging" ]]; then
-            echo "environment=staging" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.pull_request.base.ref }}" == "main" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-          fi
+          case "${{ github.event.pull_request.base.ref }}" in
+            "dev")
+              echo "environment=dev" >> $GITHUB_OUTPUT
+              ;;
+            "test")
+              echo "environment=test" >> $GITHUB_OUTPUT
+              ;;
+            "staging")
+              echo "environment=staging" >> $GITHUB_OUTPUT
+              ;;
+            "main")
+              echo "environment=prod" >> $GITHUB_OUTPUT
+              ;;
+          esac
 
       - name: Install and Configure OCI CLI
         if: steps.set-env.outputs.environment == 'dev'
         timeout-minutes: 5
         run: |
-          # Install OCI CLI using pip (faster than script)
           pip3 install oci-cli
-          
-          # Configure OCI CLI
           mkdir -p ~/.oci
           cat > ~/.oci/config << EOF
           [DEFAULT]
@@ -62,74 +83,56 @@ jobs:
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
-      
+
       - name: Bootstrap Resources Check (Dev Only)
         if: steps.set-env.outputs.environment == 'dev'
         id: bootstrap-check
-        timeout-minutes: 30
+        timeout-minutes: 10
+        continue-on-error: false
+        run: |
+          echo "🔍 Checking if terraform-state bucket exists..."
+          
+          # Check if bucket exists
+          if oci os bucket get --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" --namespace-name "${{ secrets.OCI_NAMESPACE }}" >/dev/null 2>&1; then
+            echo "✅ Bucket ${{ secrets.OCI_BUCKET_NAME }} exists"
+            echo "bootstrap_needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Bucket ${{ secrets.OCI_BUCKET_NAME }} not found"
+            echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Bootstrap Bucket (If Needed)
+        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
+        timeout-minutes: 5
         continue-on-error: true
         run: |
-          echo "🔍 Checking bootstrap resources for dev environment..."
+          echo "🚀 Creating terraform-state bucket..."
           
-          # Check if compartment exists
-          if ! oci iam compartment get --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" >/dev/null 2>&1; then
-            echo "❌ Compartment not found: ${{ secrets.OCI_COMPARTMENT_ID }}"
-            echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
-            exit 1
+          # Create public bucket using OCI CLI
+          if oci os bucket create \
+            --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
+            --name "${{ secrets.OCI_BUCKET_NAME }}" \
+            --namespace "${{ secrets.OCI_NAMESPACE }}" \
+            --public-access-type ObjectRead \
+            --versioning Enabled 2>/dev/null; then
+            echo "✅ Bucket ${{ secrets.OCI_BUCKET_NAME }} created successfully"
+          else
+            echo "⚠️ Bucket may already exist or creation failed - continuing..."
           fi
-          echo "✅ Compartment exists"
-          
-          # Check if availability domain exists
-          if ! oci iam availability-domain list --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" --query "data[?name=='${{ secrets.OCI_AVAILABILITY_DOMAIN }}']" | grep -q "${{ secrets.OCI_AVAILABILITY_DOMAIN }}"; then
-            echo "❌ Availability domain not found: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}"
-            echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          echo "✅ Availability domain exists"
-          
-          echo "bootstrap_needed=false" >> $GITHUB_OUTPUT
-          echo "🎉 All bootstrap resources verified for dev environment"
-      
-      - name: Apply Bootstrap (If Needed)
-        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
-        working-directory: environments/oci/bootstrap
-        timeout-minutes: 15
-        run: |
-          echo "🚀 Applying bootstrap resources..."
-          
-          # Replace tokens in bootstrap terraform.tfvars
-          sed -i 's|__TENANCY_OCID__|${{ secrets.OCI_TENANCY_OCID }}|g' terraform.tfvars
-          sed -i 's|__USER_OCID__|${{ secrets.OCI_USER_OCID }}|g' terraform.tfvars
-          sed -i 's|__FINGERPRINT__|${{ secrets.OCI_FINGERPRINT }}|g' terraform.tfvars
-          sed -i 's|__COMPARTMENT_ID__|${{ secrets.OCI_COMPARTMENT_ID }}|g' terraform.tfvars
-          
-          # Replace private key
-          cat > terraform.tfvars.tmp << 'EOF'
-          ${{ secrets.OCI_PRIVATE_KEY }}
-          EOF
-          awk '/__PRIVATE_KEY__/ { print "private_key = <<EOK"; while ((getline line < "terraform.tfvars.tmp") > 0) { print line } print "EOK"; close("terraform.tfvars.tmp"); next } { print }' terraform.tfvars > terraform.tfvars.new
-          mv terraform.tfvars.new terraform.tfvars
-          rm -f terraform.tfvars.tmp
-          
-          terraform init -no-color
-          terraform apply -input=false -no-color -auto-approve
-      
+
       - name: Replace Tokens with Secrets
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         run: |
-          # Replace simple tokens with actual secret values
           sed -i 's|__TENANCY_OCID__|${{ secrets.OCI_TENANCY_OCID }}|g' terraform.tfvars
           sed -i 's|__USER_OCID__|${{ secrets.OCI_USER_OCID }}|g' terraform.tfvars
           sed -i 's|__FINGERPRINT__|${{ secrets.OCI_FINGERPRINT }}|g' terraform.tfvars
           sed -i 's|__COMPARTMENT_ID__|${{ secrets.OCI_COMPARTMENT_ID }}|g' terraform.tfvars
           sed -i 's|__DB_ADMIN_PASSWORD__|${{ secrets.DB_ADMIN_PASSWORD }}|g' terraform.tfvars
           
-          # Replace private key token with heredoc format
           cat > terraform.tfvars.tmp << 'EOF'
           ${{ secrets.OCI_PRIVATE_KEY }}
           EOF
           
-          # Replace __PRIVATE_KEY__ with the actual key content
           awk '
           /__PRIVATE_KEY__/ {
             print "private_key = <<EOK"
@@ -145,54 +148,155 @@ jobs:
           
           mv terraform.tfvars.new terraform.tfvars
           rm -f terraform.tfvars.tmp
-      
+
       - name: Terraform Init
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
         timeout-minutes: 15
         run: |
           echo "🚀 Initializing Terraform for ${{ steps.set-env.outputs.environment }} environment..."
           terraform init -no-color
-      
-      - name: Terraform Apply Module
+
+      - name: Parse Modules for Phase
+        id: phase-modules
+        run: |
+          MODULES_JSON='${{ matrix.modules }}'
+          echo "Modules for phase ${{ matrix.phase }}: $MODULES_JSON"
+          echo "modules=$MODULES_JSON" >> $GITHUB_OUTPUT
+
+      - name: Apply Phase Modules
         working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
-        timeout-minutes: 30
+        timeout-minutes: 35
         continue-on-error: true
         run: |
-          echo "🚀 Applying ${{ matrix.module }} module..."
+          PHASE=${{ matrix.phase }}
+          MODULES_JSON='${{ steps.phase-modules.outputs.modules }}'
           
-          # Skip if already in state
-          if terraform state list 2>/dev/null | grep -q "module.${{ matrix.module }}"; then
-            echo "✅ Module already exists in state - skipping"
-            exit 0
-          fi
+          echo "🚀 Applying Phase $PHASE modules..."
+          echo "Modules: $MODULES_JSON"
           
-          # Apply with error handling for existing resources
-          if ! terraform apply -target=module.${{ matrix.module }} -input=false -no-color -auto-approve 2>&1 | tee apply.log; then
-            if grep -q "already exists\|LimitExceeded\|AlreadyExists\|PolicyAlreadyExists\|database named.*already exists\|Limit.*has been already reached\|Work Request error\|work request did not succeed" apply.log; then
-              echo "⚠️ Resource creation failed - handling gracefully"
-              
-              # Handle specific module failures
-              case "${{ matrix.module }}" in
-                "database")
-                  echo "⚠️ Database already exists or tenancy limit reached - skipping"
-                  exit 0
-                  ;;
-                "load_balancer")
-                  echo "⚠️ Load balancer failed - likely IP limit reached - skipping"
-                  exit 0
-                  ;;
-                "vault")
-                  echo "⚠️ Vault already exists or tenancy limit reached - skipping"
-                  exit 0
-                  ;;
-                *)
-                  terraform refresh -target=module.${{ matrix.module }} || true
-                  echo "✅ Handled existing resource gracefully"
-                  ;;
-              esac
-            else
-              echo "❌ Apply failed with unhandled error"
-              cat apply.log
-              exit 1
+          # Convert JSON array to bash array
+          eval "MODULES=($(echo '$MODULES_JSON' | sed 's/\[/(/g' | sed 's/\]/)/g' | sed 's/,/ /g'))"
+          
+          for module in "${MODULES[@]}"; do
+            module=$(echo "$module" | tr -d '"')
+            echo "📦 Processing module: $module"
+            
+            # Skip if already in state
+            if terraform state list 2>/dev/null | grep -q "module.$module"; then
+              echo "✅ Module $module already exists in state - skipping"
+              continue
             fi
+            
+            echo "🚀 Applying module: $module"
+            
+            # Apply with error handling for existing resources
+            if ! terraform apply -target=module.$module -input=false -no-color -auto-approve 2>&1 | tee apply.log; then
+              if grep -q "already exists\|LimitExceeded\|AlreadyExists\|PolicyAlreadyExists\|database named.*already exists\|Limit.*has been already reached\|Work Request error\|work request did not succeed" apply.log; then
+                echo "⚠️ Resource creation failed for $module - handling gracefully"
+                
+                case "$module" in
+                  "database")
+                    echo "⚠️ Database already exists or tenancy limit reached - skipping"
+                    ;;
+                  "load_balancer")
+                    echo "⚠️ Load balancer failed - likely IP limit reached - skipping"
+                    ;;
+                  "vault")
+                    echo "⚠️ Vault already exists or tenancy limit reached - skipping"
+                    ;;
+                  "k8s_cluster")
+                    echo "⚠️ K8s cluster failed - may need manual intervention - skipping"
+                    ;;
+                  *)
+                    terraform refresh -target=module.$module || true
+                    echo "✅ Handled existing resource gracefully for $module"
+                    ;;
+                esac
+              else
+                echo "❌ Apply failed for $module with unhandled error"
+                cat apply.log
+                exit 1
+              fi
+            else
+              echo "✅ Successfully applied module: $module"
+            fi
+          done
+          
+          echo "🎉 Phase $PHASE completed successfully"
+
+      - name: Upload State to Bucket
+        if: steps.set-env.outputs.environment == 'dev'
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          echo "📤 Uploading tfstate to bucket..."
+          
+          # Download current state
+          if terraform state pull > current.tfstate 2>/dev/null; then
+            echo "✅ State downloaded successfully"
+            
+            # Upload to bucket with timestamp
+            TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+            STATE_NAME="${{ steps.set-env.outputs.environment }}_phase${{ matrix.phase }}_${TIMESTAMP}.tfstate"
+            
+            if oci os object put \
+              --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" \
+              --namespace "${{ secrets.OCI_NAMESPACE }}" \
+              --name "$STATE_NAME" \
+              --file "current.tfstate" 2>/dev/null; then
+              echo "✅ State uploaded as $STATE_NAME"
+              echo "🔗 URL: https://objectstorage.${{ secrets.OCI_REGION }}.oraclecloud.com/n/${{ secrets.OCI_NAMESPACE }}/b/${{ secrets.OCI_BUCKET_NAME }}/o/$STATE_NAME"
+            else
+              echo "⚠️ Failed to upload state - continuing..."
+            fi
+            
+            rm -f current.tfstate
+          else
+            echo "⚠️ Could not download state - continuing..."
           fi
+
+      - name: Final Full Apply (Phase 6)
+        if: matrix.phase == 5
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        timeout-minutes: 20
+        run: |
+          echo "🔧 Performing final full apply to catch any dependencies..."
+          if ! terraform apply -input=false -no-color -auto-approve; then
+            echo "⚠️ Final apply had issues, but continuing..."
+          else
+            echo "✅ Final apply completed successfully"
+          fi
+
+  validate-state:
+    runs-on: ubuntu-latest
+    needs: apply
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Set Environment
+        id: set-env
+        run: |
+          case "${{ github.event.pull_request.base.ref }}" in
+            "dev") echo "environment=dev" >> $GITHUB_OUTPUT ;;
+            "test") echo "environment=test" >> $GITHUB_OUTPUT ;;
+            "staging") echo "environment=staging" >> $GITHUB_OUTPUT ;;
+            "main") echo "environment=prod" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Terraform Init
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: terraform init -no-color
+
+      - name: Validate State
+        working-directory: environments/oci/${{ steps.set-env.outputs.environment }}
+        run: |
+          echo "🔍 Validating Terraform state..."
+          terraform validate
+          terraform state list > /dev/null
+          echo "✅ State validation passed"

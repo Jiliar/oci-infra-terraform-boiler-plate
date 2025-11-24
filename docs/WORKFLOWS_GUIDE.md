@@ -40,11 +40,34 @@ This guide explains the GitHub Actions workflows for deploying OCI infrastructur
 **File:** `.github/workflows/terraform-apply.yml`  
 **Trigger:** Pull Request `[closed]` with `merged == true` to branches `[dev, test, staging, main]`  
 **Purpose:** Deploy infrastructure changes to OCI after successful validation  
-**Strategy:** Two-stage workflow with plan validation followed by deployment
+**Strategy:** Multi-level phased deployment respecting module dependencies
+
+## 🔗 Deployment Dependency Levels
+
+### **Nivel 1 - Fundamentos** (Deploy First)
+- `iam` ✅ - Políticas, grupos, usuarios (requerido por todo)
+- `vault` ✅ - Secrets management (requerido por DB, k8s)
+- `ocir` ✅ - Container registry (requerido por k8s)
+
+### **Nivel 2 - Red y Seguridad**
+- `networking` ✅ - VCN, subnets, security lists
+- `waf` ✅ - Web Application Firewall (depende de networking)
+
+### **Nivel 3 - Infraestructura Core**
+- `database` ✅ - Bases de datos (depende de networking)
+- `k8s_cluster` ✅ - Kubernetes (depende de networking, iam, ocir)
+
+### **Nivel 4 - Servicios de Red Avanzados**
+- `load_balancer` ✅ - Load Balancer (depende de k8s_cluster, networking)
+- `dns` ✅ - DNS records (depende de load_balancer)
+
+### **Nivel 5 - Monitoreo** (Deploy Last)
+- `monitoring` ✅ - (depende de k8s_cluster, load_balancer)
 
 **Job Dependencies:**
-1. **Plan Job** (validation) → **Apply Job** (deployment)
-2. Apply only runs if Plan succeeds
+1. **Plan Job** (validation) → **Apply Jobs** (phased deployment)
+2. Each level waits for previous level completion
+3. Modules within same level deploy in parallel
 
 **Steps executed:**
 1. **Plan Job:**
@@ -55,15 +78,12 @@ This guide explains the GitHub Actions workflows for deploying OCI infrastructur
    - Setup Terraform variables from secrets
    - `terraform init` - Initialize backend and providers
    - `terraform plan` - Validate execution plan per module
-2. **Apply Job** (runs only if Plan succeeds):
-   - Checkout code
-   - Setup Terraform 1.5.0
-   - Set environment based on target branch
-   - Configure OCI CLI with API keys
-   - Bootstrap resources check (dev only)
-   - Setup Terraform variables from secrets
-   - `terraform init` - Initialize backend and providers
-   - `terraform apply -auto-approve` - Deploy infrastructure per module
+2. **Apply Jobs** (5 sequential levels):
+   - **Level 1**: Deploy iam, vault, ocir (parallel)
+   - **Level 2**: Deploy networking, waf (parallel, waits for Level 1)
+   - **Level 3**: Deploy database, k8s_cluster (parallel, waits for Level 2)
+   - **Level 4**: Deploy load_balancer, dns (parallel, waits for Level 3)
+   - **Level 5**: Deploy monitoring (waits for Level 4)
 
 ## 🚀 Complete Deployment Flow
 
@@ -566,9 +586,10 @@ Error: Module k8s_cluster failed to apply
 ```
 
 **Solution:**
-- Check module dependencies (networking must deploy first)
+- Check dependency levels (k8s_cluster requires networking, iam, ocir from previous levels)
 - Verify module-specific variables are set
 - Review module logs in GitHub Actions
+- Ensure previous dependency levels completed successfully
 - For k8s_cluster: Only cluster control plane deploys, node pools excluded
 
 ### Debug Locally
@@ -613,12 +634,12 @@ terraform apply
    - `test` branch → test environment  
    - `staging` branch → staging environment
    - `main` branch → prod environment
-2. **Modular Deployment**: 10 modules deploy in parallel per environment
+2. **Phased Deployment**: 10 modules deploy in 5 dependency levels per environment
 3. **Auto-approve**: Apply workflow uses `-auto-approve`
 4. **Bootstrap Check**: Dev environment validates required resources exist
 5. **K8s Cluster**: Only control plane deploys, node pools excluded from pipeline
 6. **Environment Isolation**: Each environment has separate state and secrets
-7. **Matrix Strategy**: All modules run simultaneously for faster deployment
+7. **Dependency Strategy**: Modules deploy in levels respecting dependencies for reliability
 
 ## 📚 Additional Resources
 

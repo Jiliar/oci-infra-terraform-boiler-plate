@@ -331,7 +331,10 @@ crash.*.log
 # Allow terraform.tfvars in environments (sensitive data replaced by CI/CD)
 !environments/**/terraform.tfvars
 environments/**/istio/terraform.tfvars
-!environments/**/istio/terraform.tfvars.backup
+
+# Ignore terraform.tfvars backup files with timestamps
+*.tfvars.backup.*
+terraform.tfvars.backup.*
 
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in

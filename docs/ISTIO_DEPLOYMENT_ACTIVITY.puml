@@ -1,0 +1,250 @@
+@startuml ISTIO_DEPLOYMENT_ACTIVITY
+!theme aws-orange
+title Istio Service Mesh Deployment - Activity Diagram
+skinparam backgroundColor #FAFAFA
+skinparam activity {
+  BackgroundColor #E3F2FD
+  BorderColor #1976D2
+  FontColor #0D47A1
+}
+skinparam decision {
+  BackgroundColor #FFF3E0
+  BorderColor #F57C00
+  FontColor #E65100
+}
+
+start
+
+:🚀 **INICIO**: Ejecutar istio-setup.sh <environment>;
+note right: Comando: ./istio-setup.sh dev
+
+:📋 **VALIDACIÓN INICIAL**
+Verificar parámetros de entrada;
+
+if (¿Ambiente especificado?) then (no)
+  :❌ **ERROR**: Mostrar uso correcto;
+  stop
+else (sí)
+  :✅ Ambiente válido: dev/test/staging/prod;
+endif
+
+:🔍 **VALIDACIÓN DE DEPENDENCIAS**
+Verificar herramientas instaladas;
+
+partition "Dependency Check" {
+  :Verificar jq;
+  :Verificar kubectl;
+  :Verificar terraform;
+  :Verificar OCI CLI;
+}
+
+if (¿Todas las dependencias OK?) then (no)
+  :❌ **ERROR**: Listar dependencias faltantes;
+  stop
+else (sí)
+  :✅ Dependencias verificadas;
+endif
+
+:🔧 **CONFIGURACIÓN DE CLUSTER**
+Buscar clusters OKE activos;
+
+:📡 Ejecutar: oci ce cluster list;
+
+if (¿Clusters encontrados?) then (no)
+  :❌ **ERROR**: No hay clusters activos;
+  stop
+else (sí)
+  if (¿Múltiples clusters?) then (sí)
+    :📋 Mostrar menú de selección;
+    :👤 Usuario selecciona cluster;
+  else (no)
+    :🎯 Selección automática (único cluster);
+  endif
+endif
+
+:✅ Cluster seleccionado;
+note right
+  Cluster ID obtenido
+  Cluster Name identificado
+end note
+
+:🔒 **CONFIGURACIÓN DE RED**
+Configurar Security Lists;
+
+partition "Network Configuration" {
+  :Obtener subnet del cluster;
+  :Listar Security Lists;
+  :Verificar regla puerto 6443;
+  if (¿Regla existe?) then (no)
+    :➕ Agregar regla ingress 6443;
+  else (sí)
+    :✅ Puerto 6443 ya configurado;
+  endif
+}
+
+:🔧 **CONFIGURACIÓN DE TERRAFORM**
+Actualizar terraform.tfvars;
+
+partition "Terraform Setup" {
+  :💾 Crear backup de terraform.tfvars;
+  :🔄 Actualizar cluster_id;
+  :🔧 Ejecutar terraform init -upgrade;
+  :📋 Ejecutar terraform plan;
+}
+
+if (¿Terraform plan OK?) then (no)
+  :❌ **ERROR**: Plan fallido;
+  stop
+else (sí)
+  :✅ Plan validado;
+endif
+
+:🌐 **CONFIGURACIÓN DE KUBECONFIG**
+Configurar acceso al cluster;
+
+:Ejecutar: oci ce cluster create-kubeconfig;
+:Verificar conectividad kubectl;
+
+:🔍 **VERIFICACIÓN DE NODOS**
+Validar node pools y nodos;
+
+partition "Node Validation" {
+  :Listar node pools del cluster;
+  :Verificar estado de nodos;
+  :Contar nodos activos;
+  :Verificar nodos en kubectl;
+}
+
+if (¿Nodos disponibles?) then (no)
+  :❌ **ERROR**: Sin nodos para Istio;
+  stop
+else (sí)
+  :✅ Nodos validados;
+endif
+
+:📦 **FASE 1: ISTIO SERVICE MESH**
+Desplegar componentes base;
+
+partition "Istio Base Deployment" {
+  :🔧 Instalar istio-base (CRDs);
+  :terraform apply -target=istio_base;
+  
+  :🎛️ Instalar istiod (Control Plane);
+  :terraform apply -target=istiod;
+  
+  :⏳ Esperar istiod ready (300s);
+  :kubectl wait --for=condition=ready;
+  
+  :🚪 Instalar istio-ingressgateway;
+  :terraform apply -target=istio_ingress;
+}
+
+:🔍 **VERIFICACIÓN DE CRDs**
+Validar Custom Resource Definitions;
+
+repeat
+  :Verificar CRDs de Istio;
+  :kubectl get crd | grep istio;
+repeat while (¿CRDs disponibles?) is (no) not (sí)
+
+:🔧 **FASE 2: KUBERNETES MANIFESTS**
+Habilitar recursos de Kubernetes;
+
+partition "Kubernetes Resources" {
+  :📝 Crear backup del módulo;
+  :🔄 Habilitar kubernetes_manifest;
+  :sed count = var.enable_gateway;
+  :🚀 Aplicar configuración completa;
+  :terraform apply -auto-approve;
+}
+
+if (¿Deployment exitoso?) then (no)
+  :🔄 Restaurar backup;
+  :❌ **ERROR**: Configuración fallida;
+  stop
+else (sí)
+  :✅ Istio desplegado exitosamente;
+endif
+
+:📱 **FASE 3: APLICACIONES**
+Desplegar aplicaciones de ejemplo;
+
+partition "Application Deployment" {
+  :📚 Agregar repositorio bitnami;
+  :helm repo add bitnami;
+  
+  if (¿Archivo redis.yaml existe?) then (sí)
+    :🔴 Instalar Redis;
+    :helm install redis bitnami/redis;
+  endif
+  
+  :🔧 Crear namespace addon-ai;
+  
+  :🔌 Crear deployment addon-ai-api;
+  :kubectl apply deployment (nginx:alpine);
+  
+  :🌐 Crear deployment addon-ai-frontend;
+  :kubectl apply deployment (nginx:alpine);
+}
+
+:📊 **FASE 4: STACK DE MONITOREO**
+Desplegar observabilidad completa;
+
+partition "Monitoring Stack" {
+  :📚 Agregar repositorios de monitoreo;
+  :helm repo add prometheus-community;
+  :helm repo add jaegertracing;
+  :helm repo add kiali;
+  
+  :📈 Instalar Prometheus + Grafana;
+  :helm install prometheus kube-prometheus-stack;
+  note right: Namespace: monitoring
+  
+  :🔍 Instalar Jaeger (Tracing);
+  :helm install jaeger jaegertracing/jaeger;
+  note right: Storage: memory
+  
+  :🕸️ Instalar Kiali (Service Mesh UI);
+  :helm install kiali kiali/kiali-server;
+  note right: Auth: anonymous
+}
+
+:🔍 **VERIFICACIONES FINALES**
+Validar deployment completo;
+
+partition "Final Validation" {
+  :1️⃣ Verificar versión istioctl (opcional);
+  :2️⃣ Estado pods istio-system;
+  :3️⃣ Servicios de Istio;
+  :4️⃣ Estado LoadBalancer;
+  :5️⃣ CRDs instalados;
+  :6️⃣ Configuración Istio;
+  :📊 Estado aplicaciones;
+  :📈 Estado monitoreo;
+}
+
+:🎉 **DEPLOYMENT COMPLETADO**
+Mostrar resumen y comandos útiles;
+
+partition "Success Output" {
+  :📊 Resumen de 4 fases completadas;
+  :🌐 URLs de acceso a dashboards;
+  :🔑 Credenciales de acceso;
+  :💡 Comandos útiles para gestión;
+}
+
+note right
+  **Dashboards Disponibles:**
+  • Grafana: localhost:3000
+  • Kiali: localhost:20001  
+  • Jaeger: localhost:16686
+  • Prometheus: localhost:9090
+  
+  **Credenciales:**
+  • Grafana: admin/dev-grafana-password
+  • Kiali: Sin autenticación
+end note
+
+stop
+
+@enduml
