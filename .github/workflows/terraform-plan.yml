@@ -41,7 +41,6 @@ jobs:
           fi
 
       - name: Install and Configure OCI CLI
-        if: steps.set-env.outputs.environment == 'dev'
         timeout-minutes: 5
         run: |
           # Install OCI CLI using pip (faster than script)
@@ -61,38 +60,43 @@ jobs:
           chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
       
-      - name: Bootstrap Resources Check (Dev Only)
-        if: steps.set-env.outputs.environment == 'dev'
+      - name: Bootstrap Resources Check
         id: bootstrap-check
         timeout-minutes: 10
         continue-on-error: false
         run: |
-          echo "🔍 Checking if terraform-state bucket exists..."
+          echo "🔍 Checking if terraform-state bucket exists for ${{ steps.set-env.outputs.environment }}..."
+          
+          # Generate bucket name based on environment
+          BUCKET_NAME="terraform-state-${{ steps.set-env.outputs.environment }}"
           
           # Check if bucket exists
-          if oci os bucket get --bucket-name "${{ secrets.OCI_BUCKET_NAME }}" --namespace-name "${{ secrets.OCI_NAMESPACE }}" >/dev/null 2>&1; then
-            echo "✅ Bucket ${{ secrets.OCI_BUCKET_NAME }} exists"
+          if oci os bucket get --bucket-name "$BUCKET_NAME" --namespace-name "${{ secrets.OCI_NAMESPACE }}" >/dev/null 2>&1; then
+            echo "✅ Bucket $BUCKET_NAME exists"
             echo "bootstrap_needed=false" >> $GITHUB_OUTPUT
           else
-            echo "❌ Bucket ${{ secrets.OCI_BUCKET_NAME }} not found"
+            echo "❌ Bucket $BUCKET_NAME not found"
             echo "bootstrap_needed=true" >> $GITHUB_OUTPUT
           fi
       
       - name: Create Bootstrap Bucket (If Needed)
-        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
+        if: steps.bootstrap-check.outputs.bootstrap_needed == 'true'
         timeout-minutes: 5
         continue-on-error: true
         run: |
-          echo "🚀 Creating public terraform-state bucket..."
+          echo "🚀 Creating terraform-state bucket for ${{ steps.set-env.outputs.environment }}..."
           
-          # Create public bucket using OCI CLI
+          # Generate bucket name based on environment
+          BUCKET_NAME="terraform-state-${{ steps.set-env.outputs.environment }}"
+          
+          # Create bucket using OCI CLI
           if oci os bucket create \
             --compartment-id "${{ secrets.OCI_COMPARTMENT_ID }}" \
-            --name "${{ secrets.OCI_BUCKET_NAME }}" \
+            --name "$BUCKET_NAME" \
             --namespace "${{ secrets.OCI_NAMESPACE }}" \
             --public-access-type ObjectRead \
             --versioning Enabled 2>/dev/null; then
-            echo "✅ Public bucket ${{ secrets.OCI_BUCKET_NAME }} created successfully"
+            echo "✅ Bucket $BUCKET_NAME created successfully"
           else
             echo "⚠️ Bucket may already exist or creation failed - continuing..."
           fi

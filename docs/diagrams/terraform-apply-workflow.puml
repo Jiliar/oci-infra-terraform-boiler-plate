@@ -1,0 +1,253 @@
+@startuml
+
+!theme plain
+skinparam backgroundColor white
+skinparam activity {
+  BackgroundColor lightblue
+  BorderColor black
+  FontSize 10
+}
+skinparam decision {
+  BackgroundColor lightyellow
+  BorderColor black
+}
+skinparam note {
+  BackgroundColor lightgreen
+  BorderColor black
+}
+
+title Diagrama de Actividades - terraform-apply.yml
+
+start
+
+:Pull Request Merged;
+note right
+  Trigger: PR cerrado y merged
+  Ramas: dev, test, staging, main
+end note
+
+:Validar Condiciones;
+note right
+  - PR merged = true
+  - Rama objetivo válida
+  - Runner: ubuntu-latest
+  - Timeout: 60 minutos
+end note
+
+if (¿PR merged y rama válida?) then (sí)
+
+  :Inicializar Estrategia Secuencial;
+  note right
+    max-parallel: 1
+    Fases: 1, 2, 3, 4, 5
+    
+    Fase 1: Fundamentos (iam, vault, ocir)
+    Fase 2: Red y Seguridad (networking, waf)
+    Fase 3: Infraestructura Core (database, k8s_cluster)
+    Fase 4: Servicios de Red (load_l4, dns)
+    Fase 5: Monitoreo (monitoring)
+  end note
+  
+  fork
+    :Checkout Código;
+    note right
+      actions/checkout@v4
+    end note
+  fork again
+    :Setup Terraform;
+    note right
+      Versión: 1.5.0
+      hashicorp/setup-terraform@v3
+    end note
+  end fork
+  
+  :Determinar Ambiente;
+  note right
+    dev → environment=dev
+    test → environment=test
+    staging → environment=staging
+    main → environment=prod
+  end note
+  
+  if (¿Ambiente es DEV?) then (sí)
+  
+    :Instalar OCI CLI;
+    note right
+      pip3 install oci-cli
+      Timeout: 5 min
+    end note
+    
+    :Configurar OCI CLI;
+    note right
+      - Crear ~/.oci/config
+      - Escribir clave privada
+      - Permisos 600
+    end note
+    
+    :Verificar Bucket Estado;
+    note right
+      oci os bucket get
+      Bucket: terraform-state
+      Timeout: 10 min
+    end note
+    
+    if (¿Bucket existe?) then (no)
+      :Crear Bucket Bootstrap;
+      note right
+        - Acceso público ObjectRead
+        - Versionado habilitado
+        - Timeout: 5 min
+        - continue-on-error: true
+      end note
+    else
+      :Bucket ya existe;
+    endif
+    
+  else
+    :Saltar configuración OCI;
+    note right
+      Solo DEV ejecuta bootstrap
+    end note
+  endif
+  
+  :Reemplazar Tokens con Secrets;
+  note right
+    - __TENANCY_OCID__
+    - __USER_OCID__
+    - __FINGERPRINT__
+    - __COMPARTMENT_ID__
+    - __DB_ADMIN_PASSWORD__
+    - __PRIVATE_KEY__ (heredoc)
+  end note
+  
+  :Terraform Init;
+  note right
+    Directorio: environments/oci/{environment}
+    Timeout: 15 min
+    Backend remoto
+  end note
+  
+  :Parsear Módulos de Fase;
+  note right
+    Convertir JSON array a bash array
+    Limpiar formato de módulos
+  end note
+  
+  :Aplicar Módulos de Fase;
+  note right
+    Timeout: 35 min
+    continue-on-error: true
+    Para cada módulo:
+    1. Verificar si existe en state
+    2. terraform apply
+    3. Manejo de errores
+  end note
+  
+  repeat
+    :Procesar Módulo;
+    
+    if (¿Módulo existe en state?) then (sí)
+      :Saltar módulo;
+      note right
+        Ya existe - skipping
+      end note
+    else
+      :Aplicar Terraform;
+      if (¿Apply exitoso?) then (sí)
+        :Módulo aplicado;
+      else
+        if (¿Error conocido?) then (sí)
+          :Manejar Error;
+          note right
+            Errores:
+            - already exists
+            - LimitExceeded
+            - PolicyAlreadyExists
+            - database exists
+            - Work Request error
+          end note
+        else
+          :Error no manejado - Fallar;
+          stop
+        endif
+      endif
+    endif
+    
+  repeat while (¿Más módulos en fase?) is (sí)
+  -> no;
+  
+  if (¿Ambiente es DEV?) then (sí)
+    :Subir Estado a Bucket;
+    note right
+      terraform state pull
+      Crear backup
+      Subir a Object Storage
+    end note
+  else
+    :Saltar backup;
+  endif
+  
+  if (¿Es Fase 5?) then (sí)
+    :Apply Final Completo;
+    note right
+      Aplicar todo
+      Timeout: 20 min
+    end note
+  else
+    :Siguiente fase;
+  endif
+  
+  :Fase Completada;
+  
+else
+  :Saltar ejecución;
+  note right
+    Condiciones no cumplidas
+  end note
+  stop
+endif
+
+:Iniciar Job de Validación;
+note right
+  Job: validate-state
+  Ejecuta después de apply
+end note
+
+fork
+  :Setup Validación;
+  note right
+    checkout + setup terraform
+  end note
+fork again
+  :Reemplazar Tokens;
+  note right
+    crear terraform.tfvars
+  end note
+end fork
+
+:Configurar Backend;
+note right
+  TF_HTTP_USERNAME
+  TF_HTTP_PASSWORD
+end note
+
+:Terraform Init Validación;
+
+:Validar Estado;
+note right
+  terraform validate
+  terraform state list
+end note
+
+if (¿Validación exitosa?) then (sí)
+  :Estado válido;
+else
+  :Advertencia - Sin estado;
+  note right
+    Normal primer despliegue
+  end note
+endif
+
+stop
+
+@enduml

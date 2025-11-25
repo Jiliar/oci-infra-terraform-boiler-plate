@@ -25,28 +25,23 @@ jobs:
           # Fase 1 - Fundamentos
           - phase: 1
             phase_name: "Fundamentos"
-            #modules: '["iam", "vault", "ocir"]'
-            modules: '[]'
+            modules: '["iam", "vault", "ocir"]'
           # Fase 2 - Red y Seguridad
           - phase: 2
             phase_name: "Red y Seguridad"
-            #modules: '["networking", "waf"]'
-            modules: '["waf"]'
+            modules: '["networking", "waf"]'
           # Fase 3 - Infraestructura Core
           - phase: 3
             phase_name: "Infraestructura Core"
-            #modules: '["database", "k8s_cluster"]'
-            modules: '[]'
+            modules: '["database", "k8s_cluster"]'
           # Fase 4 - Servicios de Red
           - phase: 4
             phase_name: "Servicios de Red"
-            #modules: '["load_balancer", "dns"]'
-            modules: '[]'
+            modules: '["load_balancer", "dns"]'
           # Fase 5 - Monitoreo
           - phase: 5
             phase_name: "Monitoreo"
-            #modules: '["monitoring"]'
-            modules: '[]'
+            modules: '["monitoring"]'
 
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +69,6 @@ jobs:
           esac
 
       - name: Install and Configure OCI CLI
-        if: steps.set-env.outputs.environment == 'dev'
         timeout-minutes: 5
         env:
           SUPPRESS_LABEL_WARNING: true
@@ -93,8 +87,7 @@ jobs:
           chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
 
-      - name: Bootstrap Resources Check (Dev Only)
-        if: steps.set-env.outputs.environment == 'dev'
+      - name: Bootstrap Resources Check
         id: bootstrap-check
         timeout-minutes: 10
         continue-on-error: false
@@ -113,7 +106,7 @@ jobs:
           fi
 
       - name: Create Bootstrap Bucket (If Needed)
-        if: steps.set-env.outputs.environment == 'dev' && steps.bootstrap-check.outputs.bootstrap_needed == 'true'
+        if: steps.bootstrap-check.outputs.bootstrap_needed == 'true'
         timeout-minutes: 5
         continue-on-error: true
         env:
