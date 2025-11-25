@@ -108,6 +108,16 @@ resource "oci_core_security_list" "public" {
       max = 443
     }
   }
+
+  # Kubernetes API endpoint access
+  ingress_security_rules {
+    protocol = "6"
+    source   = "0.0.0.0/0"
+    tcp_options {
+      min = 6443
+      max = 6443
+    }
+  }
 }
 
 resource "oci_core_security_list" "private" {
@@ -124,5 +134,35 @@ resource "oci_core_security_list" "private" {
   ingress_security_rules {
     protocol = "all"
     source   = var.vcn_cidr_blocks[0]
+  }
+
+  # OKE Worker to Kubernetes API endpoint
+  ingress_security_rules {
+    protocol = "6"
+    source   = var.vcn_cidr_blocks[0]
+    tcp_options {
+      min = 6443
+      max = 6443
+    }
+  }
+
+  # OKE Worker to Worker (all ports)
+  ingress_security_rules {
+    protocol = "6"
+    source   = var.vcn_cidr_blocks[0]
+    tcp_options {
+      min = 10250
+      max = 10250
+    }
+  }
+
+  # Path discovery
+  ingress_security_rules {
+    protocol = "1"
+    source   = var.vcn_cidr_blocks[0]
+    icmp_options {
+      type = 3
+      code = 4
+    }
   }
 }
